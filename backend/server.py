@@ -470,6 +470,11 @@ async def create_agendamento(body: dict, user: dict = Depends(require("agenda:wr
     inicio = body["inicio"]
     fim = body.get("fim", "")
     prof = body.get("profissional_id", "")
+    if not fim and inicio:
+        try:
+            fim = (datetime.fromisoformat(inicio) + timedelta(minutes=30)).isoformat(timespec="seconds")
+        except ValueError:
+            fim = inicio
     if prof and fim:
         conflito = await db.agendamentos.find_one({
             "profissional_id": prof, "status": {"$nin": ["cancelado", "falta"]},
