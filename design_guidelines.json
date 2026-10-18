@@ -1,0 +1,155 @@
+{
+  "project_title": "Sistema de Gestão de Clínica Veterinária (VetCare Pro SaaS ERP)",
+  "language": "pt-BR",
+  "archetype": "ORGANIC & MEDICAL PRECISION (Clinical Emerald & Warm Sand)",
+  "theme": "Light theme default with high contrast, clinical cleanliness, and warm pet accents. Dark theme supported via toggle.",
+  "typography": {
+    "font_pairing_strategy": "The Soft Utility (Friendly Clinical SaaS)",
+    "heading_font": "Manrope / Outfit (Sans-Serif with character for section titles and metrics)",
+    "body_font": "Work Sans / DM Sans (High legibility for clinical data and forms)",
+    "mono_font": "JetBrains Mono / Source Code Pro (For dosages, pet chips, patient IDs, financial numbers)",
+    "hierarchy": {
+      "h1_hero": "text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight",
+      "h2_section": "text-xl sm:text-2xl lg:text-3xl font-bold tracking-tight",
+      "h3_subsection": "text-lg sm:text-xl font-semibold tracking-normal",
+      "h4_card_title": "text-base sm:text-lg font-semibold tracking-normal",
+      "body_base": "text-sm sm:text-base leading-relaxed font-normal",
+      "caption_label": "text-xs font-medium uppercase tracking-wider text-muted-foreground"
+    },
+    "forbidden_fonts": ["Space Grotesk", "Inter (for headings)"]
+  },
+  "colors": {
+    "primary": {
+      "emerald_clinical": "hsl(165, 55%, 28%)",
+      "emerald_hover": "hsl(165, 60%, 22%)",
+      "emerald_light_bg": "hsl(165, 40%, 96%)",
+      "hex_primary": "#165b4c"
+    },
+    "accent_warm": {
+      "terracotta": "#d96b43",
+      "warm_amber": "#f59e0b",
+      "soft_sand": "#fbf9f5",
+      "sage_light": "#e8f0ec"
+    },
+    "neutrals": {
+      "background_light": "#f8faf9",
+      "card_surface": "#ffffff",
+      "sidebar_surface": "#0f172a",
+      "sidebar_foreground": "#f8fafc",
+      "text_dark": "#0f172a",
+      "text_muted": "#64748b",
+      "border_subtle": "#e2e8f0"
+    },
+    "status_badges": {
+      "triagem_waiting": "bg-amber-100 text-amber-800 border-amber-300",
+      "em_atendimento": "bg-blue-100 text-blue-800 border-blue-300",
+      "internado_critical": "bg-rose-100 text-rose-800 border-rose-300",
+      "procedimento_completed": "bg-emerald-100 text-emerald-800 border-emerald-300",
+      "agendado_scheduled": "bg-slate-100 text-slate-800 border-slate-300"
+    },
+    "forbidden_colors": ["#1B93A4", "#7351B7"]
+  },
+  "visual_enhancers": {
+    "surface_strategy": "Dense, crisp cardless and subtle rounded containers (max rounded-lg). Thin 1px subtle borders (border-slate-200) instead of heavy shadows. Ambient micro-glows for urgent status badges.",
+    "tactile_accents": "Species badges with cute micro-icons (Cão 🐕, Gato 🐈, Ave 🦜, Exótico 🐇). Pipeline triage cards with visual drag handle indicators.",
+    "contrast_rules": "All text must pass WCAG 4.5:1 AA contrast ratio. Active status texts must never inherit default colors without explicit high-contrast hover styles."
+  },
+  "layout_and_grids": {
+    "app_shell": {
+      "sidebar": "Fixed left sidebar (w-64 desktop, collapsable/drawer for mobile/tablet) with module navigation, active state highlights, and clinic selector.",
+      "topbar": "Sticky top bar (h-16) with search bar (Ctrl+K), quick patient check-in button, visual notifications bell for pending items, and logged vet profile menu.",
+      "main_canvas": "Responsive container with padding (p-4 md:p-6 lg:p-8) over clean #f8faf9 canvas."
+    },
+    "bento_dashboard_grid": {
+      "pattern": "High Density Grid (Mode B for SaaS ERP)",
+      "grid_classes": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-6",
+      "widgets": [
+        {"name": "Summary KPIs", "span": "col-span-1", "content": "Atendimentos Hoje, Internações Ativas, Faturamento do Dia, Consultas Pendentes"},
+        {"name": "Fila de Atendimento (Kanban Triage Pipeline)", "span": "col-span-1 lg:col-span-2 row-span-2", "content": "Kanban board: Recepção → Triagem → Em Atendimento → Medicação → Alta"},
+        {"name": "Agenda do Dia Timeline", "span": "col-span-1 row-span-2", "content": "Horários por veterinário / sala com indicativo de atrasos ou pronto-atendimento"},
+        {"name": "Alertas Clínicos & Estoque Crítico", "span": "col-span-1 lg:col-span-2", "content": "Medicamentos com estoque baixo + Vacinas/Retornos pendentes"}
+      ]
+    }
+  },
+  "modules_breakdown": [
+    {
+      "module_id": "dashboard",
+      "title": "Painel de Controle (Home Dashboard)",
+      "pt_br_label": "Painel Geral",
+      "key_elements": "Indicadores clínicos, atalhos de ação rápida (Novo Paciente, Agendar Consulta, Iniciar Prontuário), quadro da fila em tempo real, alertas visuais de pendências."
+    },
+    {
+      "module_id": "tutors",
+      "title": "Cadastro de Tutores (Proprietários)",
+      "pt_br_label": "Tutores",
+      "key_elements": "Tabela com busca por Nome/CPF/Telefone, modal de novo cadastro em etapas, vínculo direto com pets cadastrados, histórico financeiro do tutor."
+    },
+    {
+      "module_id": "patients",
+      "title": "Cadastro de Pacientes (Animais)",
+      "pt_br_label": "Pacientes (Pets)",
+      "key_elements": "Cards/Tabela de pets com foto do animal, espécie/raça, idade, peso, tutor responsável, alerta de alergias e chip ID."
+    },
+    {
+      "module_id": "scheduling",
+      "title": "Agendamento & Calendário",
+      "pt_br_label": "Agenda",
+      "key_elements": "Visão Dia / Semana / Mês, filtro por veterinário ou sala, marcação rápida de consultas/exames/cirurgias com código de cores."
+    },
+    {
+      "module_id": "reception_queue",
+      "title": "Recepção & Fila de Espera (Kanban)",
+      "pt_br_label": "Fila de Atendimento",
+      "key_elements": "Pipeline com colunas (Chegada, Triagem, Consultório 1, Consultório 2, Internação), tempo de espera decorrido, prioridade (Emergência/Normal)."
+    },
+    {
+      "module_id": "medical_records",
+      "title": "Prontuário Eletrônico (Prontuário Veterinário)",
+      "pt_br_label": "Prontuário Clínico",
+      "key_elements": "Anamnese SOAP (Subjetivo, Objetivo, Avaliação, Plano), cálculo automático de doses por kg, prescrição de medicamentos, requisição de exames."
+    },
+    {
+      "module_id": "hospitalization",
+      "title": "Internação & Canis/Gatis",
+      "pt_br_label": "Internação",
+      "key_elements": "Mapa de leitos/baias (Baia 01 ao Baia 12), ficha de parâmetros vitais hora a hora, controle de infusão e medicações aprazadas."
+    },
+    {
+      "module_id": "inventory_finance",
+      "title": "Estoque & Financeiro",
+      "pt_br_label": "Estoque & Caixa",
+      "key_elements": "Controle de vacinas e medicamentos com lote/validade, emissão de cobranças de procedimentos e fluxo de caixa diário."
+    }
+  ],
+  "image_urls": {
+    "veterinarian_examining_kitten": "https://images.unsplash.com/photo-1725409796872-8b41e8eca929?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzOTB8MHwxfHNlYXJjaHwzfHx2ZXRlcmluYXJpYW4lMjBkb2clMjBjYXQlMjBjbGluaWN8ZW58MHx8fHwxNzkyMzQ0ODI1fDA&ixlib=rb-4.1.0&q=85",
+    "veterinarian_checking_dog": "https://images.pexels.com/photos/6235114/pexels-photo-6235114.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "veterinarian_examining_golden_dog": "https://images.pexels.com/photos/7468978/pexels-photo-7468978.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+    "french_bulldog_patient": "https://images.unsplash.com/photo-1630438994394-3deff7a591bf?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzOTB8MHwxfHNlYXJjaHwxfHx2ZXRlcmluYXJpYW4lMjBkb2clMjBjYXQlMjBjbGluaWN8ZW58MHx8fHwxNzkyMzQ0ODI1fDA&ixlib=rb-4.1.0&q=85",
+    "veterinary_team_clinic": "https://images.unsplash.com/photo-1700665537604-412e89a285c3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzOTB8MHwxfHNlYXJjaHw0fHx2ZXRlcmluYXJpYW4lMjBkb2clMjBjYXQlMjBjbGluaWN8ZW58MHx8fHwxNzkyMzQ0ODI1fDA&ixlib=rb-4.1.0&q=85"
+  },
+  "component_guidelines": {
+    "table_design": "Use clean, dense borders (`border-slate-200`), sticky headers, alternate row colors (`hover:bg-slate-50/80`), species icons, status pills, and quick action buttons on each row.",
+    "form_design": "Organized into distinct sections with overline headers (e.g. DADOS DO TUTOR, DADOS DO ANIMAL, HISTÓRICO DE SAÚDE). Use Shadcn components for Select, Input, Switch, and Dialog.",
+    "modal_dialogs": "Clean modals with solid background (no dark flat overlays that obscure content). High accessibility dialogs for registering patients, scheduling appointments, and dispensing meds.",
+    "toasts": "Use `sonner` for quick notification toasts (e.g., 'Prontuário salvo com sucesso', 'Paciente colocado na triagem')."
+  },
+  "testing_attributes": {
+    "rule": "Every button, tab, search input, status filter, modal trigger, and key metric card MUST include a `data-testid` attribute using kebab-case role naming.",
+    "examples": [
+      "data-testid=\"sidebar-module-tutors-link\"",
+      "data-testid=\"quick-add-patient-button\"",
+      "data-testid=\"triage-pipeline-kanban-board\"",
+      "data-testid=\"patient-search-input\"",
+      "data-testid=\"medical-record-save-button\"",
+      "data-testid=\"kpi-patients-today-card\""
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Ensure all text rendered in the interface is in natural, professional Brazilian Portuguese (pt-BR). E.g., 'Agendamento de Consulta', 'Novo Prontuário', 'Status de Triagem', 'Informações do Tutor'.",
+    "Strictly avoid Inter for main headings. Use Manrope or Outfit.",
+    "Ensure all interactive components have proper `data-testid` attributes.",
+    "Implement clear responsive views (Desktop sidebar + Mobile drawer header).",
+    "Use Shadcn components for forms, dialogs, selects, tabs, and notifications (Sonner)."
+  ]
+}
