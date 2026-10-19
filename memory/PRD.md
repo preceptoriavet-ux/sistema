@@ -46,6 +46,11 @@ Validado por testing agent (backend 100% após fix de conflito de agenda; fronte
 - Emissão de documento dentro do prontuário: botão "Emitir Documento" no atendimento gera o PDF (receita/atestado/etc.) já vinculado ao prontuário (prontuario_id) e abre para impressão.
 - Verificado via API (update de config, documento com prontuario_id) e screenshots.
 
+## Implementado (2026-06) — Relatórios + Logo nos PDFs
+- Painel de Relatórios & Indicadores (/relatorios): filtro por período, KPIs (atendimentos, exames/críticos, vacinas, agendamentos/faltas), barras de atendimentos por espécie e exames por status, tabela de diagnósticos mais frequentes, vacinas por tipo e resumo operacional. Exportação em CSV (diagnósticos e vacinas). Endpoint GET /api/relatorios agrega prontuários, exames, vacinas, fila e agendamentos por data.
+- Logotipo nos PDFs: upload da logo na aba Dados da Clínica (object storage); renderizada no topo de todos os documentos gerados (reportlab Image).
+- Verificado via API (agregações, upload de logo, config) e visualmente (painel + PDF renderizado com logo).
+
 ## Backlog priorizado
 - P0 (Fase 2): Triagem veterinária, Prescrições e documentos clínicos (PDF), Exames e resultados (anexos PDF), Vacinação e retornos.
 - P1 (Fase 3): Procedimentos, Estoque e farmácia, Financeiro/faturamento, Relatórios, Atendimento domiciliar, Comunicação com tutores.

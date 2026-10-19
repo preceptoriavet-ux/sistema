@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { api, formatApiError } from "@/lib/api";
+import { api, formatApiError, fileUrl } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Pencil, ShieldCheck, Building2 } from "lucide-react";
+import { Plus, Pencil, ShieldCheck, Building2, Upload } from "lucide-react";
 
 export default function Usuarios() {
   const [users, setUsers] = useState([]);
@@ -21,8 +21,9 @@ export default function Usuarios() {
   const [form, setForm] = useState({ name: "", email: "", password: "", role: "recepcionista", conselho: "", active: true });
   const [editId, setEditId] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [clinica, setClinica] = useState({ nome: "", endereco: "", telefone: "", cnpj: "", email: "" });
+  const [clinica, setClinica] = useState({ nome: "", endereco: "", telefone: "", cnpj: "", email: "", logo_path: "" });
   const [savingClinica, setSavingClinica] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const load = useCallback(async () => {
     const [u, r, a, c] = await Promise.all([api.get("/users"), api.get("/users/roles"), api.get("/audit"), api.get("/config/clinica")]);
@@ -31,6 +32,17 @@ export default function Usuarios() {
   useEffect(() => { load(); }, [load]);
 
   const cfield = (k, v) => setClinica((c) => ({ ...c, [k]: v }));
+  const uploadLogo = async (file) => {
+    if (!file) return;
+    setUploadingLogo(true);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const { data } = await api.post("/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      cfield("logo_path", data.storage_path);
+      toast.success("Logo enviada — clique em Salvar Dados");
+    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
+    finally { setUploadingLogo(false); }
+  };
   const saveClinica = async () => {
     if (!clinica.nome.trim()) return toast.error("Informe o nome da clínica");
     setSavingClinica(true);
@@ -133,6 +145,15 @@ export default function Usuarios() {
                 <div><Label>CNPJ</Label><Input value={clinica.cnpj || ""} onChange={(e) => cfield("cnpj", e.target.value)} data-testid="clinica-cnpj-input" /></div>
               </div>
               <div><Label>E-mail</Label><Input value={clinica.email || ""} onChange={(e) => cfield("email", e.target.value)} /></div>
+              <div><Label>Logotipo (aparece no topo dos PDFs)</Label>
+                <div className="flex items-center gap-3 mt-1.5">
+                  {clinica.logo_path && <img src={fileUrl(clinica.logo_path)} alt="logo" className="h-14 w-14 rounded-lg object-contain border bg-white p-1" data-testid="clinica-logo-preview" />}
+                  <label className="inline-flex items-center gap-2 text-sm border rounded-lg px-3 py-2 cursor-pointer hover:bg-secondary" data-testid="clinica-logo-upload">
+                    <Upload className="h-4 w-4" />{uploadingLogo ? "Enviando…" : "Enviar logo"}
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => uploadLogo(e.target.files[0])} />
+                  </label>
+                </div>
+              </div>
               <div><Button onClick={saveClinica} disabled={savingClinica} data-testid="save-clinica-button">{savingClinica ? "Salvando…" : "Salvar Dados"}</Button></div>
             </div>
           </Card>

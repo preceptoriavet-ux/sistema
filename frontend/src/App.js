@@ -13,6 +13,7 @@ import Triagem from "@/pages/Triagem";
 import Exames from "@/pages/Exames";
 import Documentos from "@/pages/Documentos";
 import Vacinas from "@/pages/Vacinas";
+import Relatorios from "@/pages/Relatorios";
 import Usuarios from "@/pages/Usuarios";
 
 function Protected({ children }) {
@@ -37,6 +38,7 @@ function AppRoutes() {
       <Route path="/exames" element={<Protected><Exames /></Protected>} />
       <Route path="/documentos" element={<Protected><Documentos /></Protected>} />
       <Route path="/vacinas" element={<Protected><Vacinas /></Protected>} />
+      <Route path="/relatorios" element={<Protected><Relatorios /></Protected>} />
       <Route path="/usuarios" element={<Protected><Usuarios /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

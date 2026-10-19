@@ -873,7 +873,7 @@ async def update_exame(eid: str, body: dict, user: dict = Depends(require("exame
 DEFAULT_CLINIC = {
     "id": "clinica", "nome": "VetCare Pro — Clínica Veterinária",
     "endereco": "Rua das Acácias, 123 — Centro", "telefone": "(11) 4000-0000",
-    "cnpj": "", "email": "contato@vetcare.com",
+    "cnpj": "", "email": "contato@vetcare.com", "logo_path": "",
 }
 
 
@@ -885,7 +885,7 @@ async def get_clinica(user: dict = Depends(get_current_user)):
 
 @api_router.put("/config/clinica")
 async def update_clinica(body: dict, user: dict = Depends(require("users:manage"))):
-    fields = ["nome", "endereco", "telefone", "cnpj", "email"]
+    fields = ["nome", "endereco", "telefone", "cnpj", "email", "logo_path"]
     updates = {k: body[k] for k in fields if k in body}
     await db.config.update_one({"id": "clinica"}, {"$set": updates}, upsert=True)
     await audit(user, "atualizou config", "clinica", "clinica", "")
@@ -917,7 +917,13 @@ async def create_documento(body: dict, user: dict = Depends(require("prontuario:
         "corpo": body.get("corpo", ""), "medicamentos": body.get("medicamentos", ""),
         "profissional_nome": user.get("name", ""), "conselho": user.get("conselho", ""),
     }
-    pdf_bytes = build_documento_pdf(render, clinic)
+    logo_bytes = None
+    if clinic.get("logo_path"):
+        try:
+            logo_bytes, _ = get_object(clinic["logo_path"])
+        except Exception:
+            logo_bytes = None
+    pdf_bytes = build_documento_pdf(render, clinic, logo_bytes)
     path = build_path("pdf")
     result = put_object(path, pdf_bytes, "application/pdf")
     doc = {
@@ -938,6 +944,46 @@ async def create_documento(body: dict, user: dict = Depends(require("prontuario:
     await audit(user, "emitiu documento", "documento", doc["id"], f"{TIPO_TITULO[tipo]} - {paciente['nome']}")
     doc.pop("_id", None)
     return doc
+
+
+# ---------------- Relatórios ----------------
+@api_router.get("/relatorios")
+async def relatorios(data_ini: Optional[str] = None, data_fim: Optional[str] = None,
+                     user: dict = Depends(require("prontuario:read", "users:manage"))):
+    from collections import Counter
+    rng = {}
+    if data_ini:
+        rng["$gte"] = data_ini
+    if data_fim:
+        rng["$lte"] = data_fim + "T23:59:59"
+    dq = {"created_at": rng} if rng else {}
+
+    prontuarios = await db.prontuarios.find(dq, {"_id": 0}).to_list(5000)
+    exames = await db.exames.find(dq, {"_id": 0}).to_list(5000)
+    vacinas = await db.vacinas.find(dq, {"_id": 0}).to_list(5000)
+    fila = await db.fila.find({"chegada": rng} if rng else {}, {"_id": 0}).to_list(5000)
+    agend = await db.agendamentos.find({"inicio": rng} if rng else {}, {"_id": 0}).to_list(5000)
+
+    diag = Counter((p.get("diagnostico") or "").strip() for p in prontuarios if (p.get("diagnostico") or "").strip())
+    especie = Counter((f.get("especie") or "outro") for f in fila)
+    exame_status = Counter(e.get("status", "") for e in exames)
+    vac_tipo = Counter(v.get("tipo", "") for v in vacinas)
+    ag_status = Counter(a.get("status", "") for a in agend)
+
+    return {
+        "periodo": {"data_ini": data_ini or "", "data_fim": data_fim or ""},
+        "resumo": {
+            "atendimentos": len(prontuarios), "exames": len(exames),
+            "exames_criticos": sum(1 for e in exames if e.get("critico")),
+            "vacinas": len(vacinas), "agendamentos": len(agend),
+            "faltas": ag_status.get("falta", 0), "cancelamentos": ag_status.get("cancelado", 0),
+            "fila_total": len(fila),
+        },
+        "por_especie": [{"especie": k, "total": v} for k, v in especie.most_common()],
+        "diagnosticos": [{"diagnostico": k, "total": v} for k, v in diag.most_common(20)],
+        "exames_por_status": [{"status": k, "total": v} for k, v in exame_status.most_common()],
+        "vacinas_por_tipo": [{"tipo": k, "total": v} for k, v in vac_tipo.most_common()],
+    }
 
 
 app.include_router(api_router)

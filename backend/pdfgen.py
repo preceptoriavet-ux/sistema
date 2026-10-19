@@ -6,7 +6,7 @@ from reportlab.lib.units import mm
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_RIGHT
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle, Image
 
 TIPO_TITULO = {
     "receita": "Receituário Veterinário",
@@ -26,7 +26,7 @@ def _br(text: str) -> str:
     return (text or "").replace("\n", "<br/>").strip()
 
 
-def build_documento_pdf(doc: dict, clinic: dict) -> bytes:
+def build_documento_pdf(doc: dict, clinic: dict, logo_bytes: bytes = None) -> bytes:
     buf = BytesIO()
     pdf = SimpleDocTemplate(buf, pagesize=A4, topMargin=16 * mm, bottomMargin=16 * mm,
                             leftMargin=20 * mm, rightMargin=20 * mm, title=TIPO_TITULO.get(doc["tipo"], "Documento"))
@@ -41,6 +41,18 @@ def build_documento_pdf(doc: dict, clinic: dict) -> bytes:
     foot = ParagraphStyle("ft", parent=ss["Normal"], fontSize=8, textColor=MUTED, alignment=TA_CENTER)
 
     el = []
+    if logo_bytes:
+        try:
+            img = Image(BytesIO(logo_bytes))
+            iw, ih = img.imageWidth, img.imageHeight
+            if ih > 0:
+                img.drawHeight = 22 * mm
+                img.drawWidth = 22 * mm * iw / ih
+            img.hAlign = "CENTER"
+            el.append(img)
+            el.append(Spacer(1, 6))
+        except Exception:
+            pass
     el.append(Paragraph(clinic.get("nome", "Clínica Veterinária"), clinic_name))
     linha2 = " · ".join([x for x in [clinic.get("endereco", ""), clinic.get("telefone", "")] if x])
     if linha2:
