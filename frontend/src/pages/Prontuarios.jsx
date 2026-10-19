@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api, formatApiError, fileUrl } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { especieLabel } from "@/lib/constants";
+import { especieLabel, TIPOS_DOCUMENTO } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,7 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Stethoscope, CheckCircle2, ShieldCheck, Clock } from "lucide-react";
+import { Plus, Stethoscope, CheckCircle2, ShieldCheck, Clock, FileText } from "lucide-react";
 
 const ST = { rascunho: { l: "Rascunho", c: "bg-slate-100 text-slate-700 border-slate-300" }, aguardando_revisao: { l: "Aguardando Revisão", c: "bg-amber-100 text-amber-800 border-amber-300" }, finalizado: { l: "Finalizado", c: "bg-emerald-100 text-emerald-800 border-emerald-300" }, validado: { l: "Validado", c: "bg-primary/10 text-primary border-primary/30" } };
 const EMPTY = { paciente_id: "", motivo: "", queixa_principal: "", anamnese: "", exame_fisico: "", temperatura: "", fc: "", fr: "", peso: "", lista_problemas: "", hipoteses: "", diagnostico: "", plano_terapeutico: "", exames_solicitados: "", prescricoes: "", orientacoes: "", retorno: "" };
@@ -27,6 +27,9 @@ export default function Prontuarios() {
   const [editStatus, setEditStatus] = useState("");
   const [exames, setExames] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [docOpen, setDocOpen] = useState(false);
+  const [docForm, setDocForm] = useState({ tipo: "receita", medicamentos: "", corpo: "" });
+  const [docSaving, setDocSaving] = useState(false);
 
   const load = useCallback(async () => { const { data } = await api.get("/prontuarios"); setRows(data); }, []);
   useEffect(() => { load(); api.get("/pacientes").then((r) => setPacientes(r.data)); }, [load]);
@@ -50,6 +53,21 @@ export default function Prontuarios() {
   };
 
   const validar = async () => { try { await api.post(`/prontuarios/${editId}/validar`); toast.success("Prontuário validado"); setOpen(false); load(); } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } };
+
+  const dfield = (k, v) => setDocForm((f) => ({ ...f, [k]: v }));
+  const openDoc = () => { setDocForm({ tipo: "receita", medicamentos: "", corpo: "" }); setDocOpen(true); };
+  const docTipoCfg = TIPOS_DOCUMENTO.find((t) => t.value === docForm.tipo);
+  const emitDoc = async () => {
+    if (!docForm.corpo.trim() && !docForm.medicamentos.trim()) return toast.error("Preencha o conteúdo do documento");
+    setDocSaving(true);
+    try {
+      const { data } = await api.post("/documentos", { ...docForm, paciente_id: form.paciente_id, prontuario_id: editId });
+      toast.success("Documento emitido e vinculado ao prontuário");
+      setDocOpen(false);
+      window.open(fileUrl(data.pdf_path), "_blank");
+    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
+    finally { setDocSaving(false); }
+  };
 
   const locked = ["finalizado", "validado", "aguardando_revisao"].includes(editStatus);
   const canValidate = editStatus === "aguardando_revisao" && ["veterinario", "admin", "gestor"].includes(user?.role);
@@ -142,6 +160,7 @@ export default function Prontuarios() {
           {locked && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">Registro finalizado. Correções são rastreadas e não apagam o histórico.</p>}
           <DialogFooter className="flex-wrap gap-2">
             <Button variant="outline" onClick={() => setOpen(false)}>Fechar</Button>
+            {editId && can("prontuario:write") && <Button variant="outline" onClick={openDoc} data-testid="prontuario-emitir-doc-button"><FileText className="h-4 w-4 mr-1.5" />Emitir Documento</Button>}
             {canValidate && <Button onClick={validar} data-testid="validar-prontuario-button"><ShieldCheck className="h-4 w-4 mr-1.5" />Validar</Button>}
             {can("prontuario:write") && (locked ? (
               <Button onClick={() => save(false)} disabled={saving} data-testid="corrigir-prontuario-button">Salvar Correção</Button>
@@ -149,6 +168,33 @@ export default function Prontuarios() {
               <Button variant="secondary" onClick={() => save(false)} disabled={saving} data-testid="salvar-rascunho-button">Salvar Rascunho</Button>
               <Button onClick={() => save(true)} disabled={saving} data-testid="finalizar-prontuario-button"><CheckCircle2 className="h-4 w-4 mr-1.5" />Finalizar</Button>
             </>))}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={docOpen} onOpenChange={setDocOpen}>
+        <DialogContent className="max-w-xl max-h-[92vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Emitir Documento — {form.paciente_nome}</DialogTitle></DialogHeader>
+          <div className="grid gap-3">
+            <div><Label>Tipo de documento</Label>
+              <Select value={docForm.tipo} onValueChange={(v) => dfield("tipo", v)}>
+                <SelectTrigger data-testid="prontuario-doc-tipo-select"><SelectValue /></SelectTrigger>
+                <SelectContent>{TIPOS_DOCUMENTO.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            {docTipoCfg?.medicamentos && (
+              <div><Label>Medicamentos / Prescrição</Label>
+                <Textarea rows={5} value={docForm.medicamentos} onChange={(e) => dfield("medicamentos", e.target.value)} data-testid="prontuario-doc-medicamentos-input"
+                  placeholder={"1) Amoxicilina 250mg — 1 comp. VO a cada 12h por 7 dias"} />
+              </div>
+            )}
+            <div><Label>{docTipoCfg?.medicamentos ? "Orientações" : "Conteúdo"}</Label>
+              <Textarea rows={6} value={docForm.corpo} onChange={(e) => dfield("corpo", e.target.value)} data-testid="prontuario-doc-corpo-input" placeholder="Digite o texto do documento…" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDocOpen(false)}>Cancelar</Button>
+            <Button onClick={emitDoc} disabled={docSaving} data-testid="prontuario-doc-gerar-button">{docSaving ? "Gerando…" : "Gerar PDF"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

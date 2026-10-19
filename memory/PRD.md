@@ -41,6 +41,11 @@ Validado por testing agent (backend 100% após fix de conflito de agenda; fronte
 - Protocolos de vacina: sugestão automática da próxima dose por espécie + tipo (ex.: V10 canino → +21 dias, antirrábica → +365 dias), no backend (fallback ao salvar) e no frontend (hint "Sugerido pelo protocolo").
 - PDF verificado visualmente (render PNG) e demais fluxos via API + screenshots.
 
+## Implementado (2026-06) — Config Clínica + Documento no Prontuário
+- Tela de Configuração da Clínica (aba em Usuários & Permissões, admin): editar nome, endereço, telefone, CNPJ e e-mail que aparecem nos PDFs (GET/PUT /api/config/clinica).
+- Emissão de documento dentro do prontuário: botão "Emitir Documento" no atendimento gera o PDF (receita/atestado/etc.) já vinculado ao prontuário (prontuario_id) e abre para impressão.
+- Verificado via API (update de config, documento com prontuario_id) e screenshots.
+
 ## Backlog priorizado
 - P0 (Fase 2): Triagem veterinária, Prescrições e documentos clínicos (PDF), Exames e resultados (anexos PDF), Vacinação e retornos.
 - P1 (Fase 3): Procedimentos, Estoque e farmácia, Financeiro/faturamento, Relatórios, Atendimento domiciliar, Comunicação com tutores.

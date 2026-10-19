@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Pencil, ShieldCheck } from "lucide-react";
+import { Plus, Pencil, ShieldCheck, Building2 } from "lucide-react";
 
 export default function Usuarios() {
   const [users, setUsers] = useState([]);
@@ -21,12 +21,23 @@ export default function Usuarios() {
   const [form, setForm] = useState({ name: "", email: "", password: "", role: "recepcionista", conselho: "", active: true });
   const [editId, setEditId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [clinica, setClinica] = useState({ nome: "", endereco: "", telefone: "", cnpj: "", email: "" });
+  const [savingClinica, setSavingClinica] = useState(false);
 
   const load = useCallback(async () => {
-    const [u, r, a] = await Promise.all([api.get("/users"), api.get("/users/roles"), api.get("/audit")]);
-    setUsers(u.data); setRoles(r.data); setAudit(a.data);
+    const [u, r, a, c] = await Promise.all([api.get("/users"), api.get("/users/roles"), api.get("/audit"), api.get("/config/clinica")]);
+    setUsers(u.data); setRoles(r.data); setAudit(a.data); setClinica(c.data);
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  const cfield = (k, v) => setClinica((c) => ({ ...c, [k]: v }));
+  const saveClinica = async () => {
+    if (!clinica.nome.trim()) return toast.error("Informe o nome da clínica");
+    setSavingClinica(true);
+    try { await api.put("/config/clinica", clinica); toast.success("Dados da clínica atualizados"); }
+    catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
+    finally { setSavingClinica(false); }
+  };
 
   const field = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const openNew = () => { setForm({ name: "", email: "", password: "", role: "recepcionista", conselho: "", active: true }); setEditId(null); setOpen(true); };
@@ -56,6 +67,7 @@ export default function Usuarios() {
         <TabsList>
           <TabsTrigger value="usuarios" data-testid="tab-usuarios">Usuários</TabsTrigger>
           <TabsTrigger value="permissoes">Funções & Permissões</TabsTrigger>
+          <TabsTrigger value="clinica" data-testid="tab-clinica">Dados da Clínica</TabsTrigger>
           <TabsTrigger value="auditoria">Auditoria</TabsTrigger>
         </TabsList>
 
@@ -107,6 +119,22 @@ export default function Usuarios() {
                 {audit.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Sem registros.</TableCell></TableRow>}
               </TableBody>
             </Table>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="clinica" className="pt-2">
+          <Card className="p-5 max-w-xl">
+            <p className="font-semibold flex items-center gap-2 mb-4"><Building2 className="h-4 w-4 text-primary" />Dados da Clínica <span className="text-xs font-normal text-muted-foreground">(aparecem nos PDFs)</span></p>
+            <div className="grid gap-3">
+              <div><Label>Nome da clínica *</Label><Input value={clinica.nome || ""} onChange={(e) => cfield("nome", e.target.value)} data-testid="clinica-nome-input" /></div>
+              <div><Label>Endereço</Label><Input value={clinica.endereco || ""} onChange={(e) => cfield("endereco", e.target.value)} data-testid="clinica-endereco-input" /></div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div><Label>Telefone</Label><Input value={clinica.telefone || ""} onChange={(e) => cfield("telefone", e.target.value)} data-testid="clinica-telefone-input" /></div>
+                <div><Label>CNPJ</Label><Input value={clinica.cnpj || ""} onChange={(e) => cfield("cnpj", e.target.value)} data-testid="clinica-cnpj-input" /></div>
+              </div>
+              <div><Label>E-mail</Label><Input value={clinica.email || ""} onChange={(e) => cfield("email", e.target.value)} /></div>
+              <div><Button onClick={saveClinica} disabled={savingClinica} data-testid="save-clinica-button">{savingClinica ? "Salvando…" : "Salvar Dados"}</Button></div>
+            </div>
           </Card>
         </TabsContent>
       </Tabs>
