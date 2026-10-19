@@ -51,6 +51,11 @@ Validado por testing agent (backend 100% após fix de conflito de agenda; fronte
 - Logotipo nos PDFs: upload da logo na aba Dados da Clínica (object storage); renderizada no topo de todos os documentos gerados (reportlab Image).
 - Verificado via API (agregações, upload de logo, config) e visualmente (painel + PDF renderizado com logo).
 
+## Implementado (2026-06) — Financeiro & Faturamento
+- Módulo Financeiro (/financeiro) separado dos registros clínicos, com permissões próprias (financeiro:read/write; acesso: financeiro, gestor, admin — veterinário recebe 403): cadastro de serviços e preços; lançamentos de receitas e despesas com categoria, valor, desconto, status (pendente/pago/cancelado), forma de pagamento, data e vencimento; ação "marcar pago" (grava pago_em automático); vínculo opcional a tutor/paciente e seleção de serviço para preencher preço.
+- Resumo financeiro por período: recebido, a receber, despesas pagas, a pagar e saldo. Endpoints: /api/servicos, /api/financeiro, /api/financeiro/resumo.
+- Verificado via API (serviços, lançamentos, update de status, resumo, RBAC 403) e screenshot.
+
 ## Backlog priorizado
 - P0 (Fase 2): Triagem veterinária, Prescrições e documentos clínicos (PDF), Exames e resultados (anexos PDF), Vacinação e retornos.
 - P1 (Fase 3): Procedimentos, Estoque e farmácia, Financeiro/faturamento, Relatórios, Atendimento domiciliar, Comunicação com tutores.

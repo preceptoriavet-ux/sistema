@@ -14,6 +14,7 @@ import Exames from "@/pages/Exames";
 import Documentos from "@/pages/Documentos";
 import Vacinas from "@/pages/Vacinas";
 import Relatorios from "@/pages/Relatorios";
+import Financeiro from "@/pages/Financeiro";
 import Usuarios from "@/pages/Usuarios";
 
 function Protected({ children }) {
@@ -39,6 +40,7 @@ function AppRoutes() {
       <Route path="/documentos" element={<Protected><Documentos /></Protected>} />
       <Route path="/vacinas" element={<Protected><Vacinas /></Protected>} />
       <Route path="/relatorios" element={<Protected><Relatorios /></Protected>} />
+      <Route path="/financeiro" element={<Protected><Financeiro /></Protected>} />
       <Route path="/usuarios" element={<Protected><Usuarios /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

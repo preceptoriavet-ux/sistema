@@ -46,6 +46,7 @@ ALL_PERMS = {
     "agenda:read", "agenda:write", "fila:read", "fila:write", "prontuario:read", "prontuario:write",
     "triagem:read", "triagem:write", "vacina:read", "vacina:write",
     "exame:read", "exame:write",
+    "financeiro:read", "financeiro:write",
 }
 PERMISSIONS = {
     "admin": set(ALL_PERMS),
@@ -64,7 +65,7 @@ PERMISSIONS = {
                  "prontuario:read", "triagem:read", "triagem:write", "vacina:read", "vacina:write",
                  "exame:read", "exame:write"},
     "estoque": {"pacientes:read", "vacina:read"},
-    "financeiro": {"tutores:read", "pacientes:read", "agenda:read"},
+    "financeiro": {"tutores:read", "pacientes:read", "agenda:read", "financeiro:read", "financeiro:write"},
 }
 
 
@@ -983,6 +984,132 @@ async def relatorios(data_ini: Optional[str] = None, data_fim: Optional[str] = N
         "diagnosticos": [{"diagnostico": k, "total": v} for k, v in diag.most_common(20)],
         "exames_por_status": [{"status": k, "total": v} for k, v in exame_status.most_common()],
         "vacinas_por_tipo": [{"tipo": k, "total": v} for k, v in vac_tipo.most_common()],
+    }
+
+
+# ---------------- Financeiro ----------------
+def _num(v):
+    try:
+        return round(float(v), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+@api_router.get("/servicos")
+async def list_servicos(user: dict = Depends(require("financeiro:read"))):
+    return await db.servicos.find({}, {"_id": 0}).sort("nome", 1).to_list(1000)
+
+
+@api_router.post("/servicos")
+async def create_servico(body: dict, user: dict = Depends(require("financeiro:write"))):
+    doc = {
+        "id": str(uuid.uuid4()), "nome": (body.get("nome") or "").strip(),
+        "categoria": body.get("categoria", ""), "preco": _num(body.get("preco")),
+        "descricao": body.get("descricao", ""), "ativo": bool(body.get("ativo", True)),
+        "created_at": now_iso(),
+    }
+    if not doc["nome"]:
+        raise HTTPException(status_code=400, detail="Informe o nome do serviço")
+    await db.servicos.insert_one(doc)
+    await audit(user, "cadastrou serviço", "servico", doc["id"], doc["nome"])
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.put("/servicos/{sid}")
+async def update_servico(sid: str, body: dict, user: dict = Depends(require("financeiro:write"))):
+    if not await db.servicos.find_one({"id": sid}):
+        raise HTTPException(status_code=404, detail="Serviço não encontrado")
+    updates = {}
+    for k in ["nome", "categoria", "descricao", "ativo"]:
+        if k in body:
+            updates[k] = body[k]
+    if "preco" in body:
+        updates["preco"] = _num(body["preco"])
+    await db.servicos.update_one({"id": sid}, {"$set": updates})
+    await audit(user, "editou serviço", "servico", sid, "")
+    return await db.servicos.find_one({"id": sid}, {"_id": 0})
+
+
+@api_router.get("/financeiro")
+async def list_financeiro(tipo: Optional[str] = None, status: Optional[str] = None,
+                          data_ini: Optional[str] = None, data_fim: Optional[str] = None,
+                          user: dict = Depends(require("financeiro:read"))):
+    query = {}
+    if tipo:
+        query["tipo"] = tipo
+    if status:
+        query["status"] = status
+    if data_ini and data_fim:
+        query["data"] = {"$gte": data_ini, "$lte": data_fim}
+    return await db.financeiro.find(query, {"_id": 0}).sort("data", -1).to_list(3000)
+
+
+@api_router.post("/financeiro")
+async def create_financeiro(body: dict, user: dict = Depends(require("financeiro:write"))):
+    tipo = body.get("tipo", "receita")
+    if tipo not in ("receita", "despesa"):
+        raise HTTPException(status_code=400, detail="Tipo inválido")
+    doc = {
+        "id": str(uuid.uuid4()), "tipo": tipo, "categoria": body.get("categoria", ""),
+        "descricao": (body.get("descricao") or "").strip(), "valor": _num(body.get("valor")),
+        "desconto": _num(body.get("desconto")), "status": body.get("status", "pendente"),
+        "forma_pagamento": body.get("forma_pagamento", ""),
+        "data": body.get("data") or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "vencimento": body.get("vencimento", ""), "pago_em": body.get("pago_em", ""),
+        "paciente_id": body.get("paciente_id", ""), "paciente_nome": body.get("paciente_nome", ""),
+        "tutor_nome": body.get("tutor_nome", ""), "servico_id": body.get("servico_id", ""),
+        "observacoes": body.get("observacoes", ""),
+        "created_at": now_iso(), "created_by": user.get("name", ""),
+    }
+    if not doc["descricao"]:
+        raise HTTPException(status_code=400, detail="Informe a descrição")
+    if doc["status"] == "pago" and not doc["pago_em"]:
+        doc["pago_em"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    await db.financeiro.insert_one(doc)
+    await audit(user, "lançou financeiro", "financeiro", doc["id"], f"{tipo} R${doc['valor']}")
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.put("/financeiro/{fid}")
+async def update_financeiro(fid: str, body: dict, user: dict = Depends(require("financeiro:write"))):
+    existing = await db.financeiro.find_one({"id": fid})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Lançamento não encontrado")
+    updates = {}
+    for k in ["categoria", "descricao", "status", "forma_pagamento", "data", "vencimento",
+              "pago_em", "observacoes", "paciente_nome"]:
+        if k in body:
+            updates[k] = body[k]
+    for k in ["valor", "desconto"]:
+        if k in body:
+            updates[k] = _num(body[k])
+    if updates.get("status") == "pago" and not existing.get("pago_em") and not updates.get("pago_em"):
+        updates["pago_em"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    await db.financeiro.update_one({"id": fid}, {"$set": updates})
+    await audit(user, "atualizou financeiro", "financeiro", fid, updates.get("status", ""))
+    return await db.financeiro.find_one({"id": fid}, {"_id": 0})
+
+
+@api_router.get("/financeiro/resumo")
+async def resumo_financeiro(data_ini: Optional[str] = None, data_fim: Optional[str] = None,
+                            user: dict = Depends(require("financeiro:read"))):
+    query = {}
+    if data_ini and data_fim:
+        query["data"] = {"$gte": data_ini, "$lte": data_fim}
+    rows = await db.financeiro.find(query, {"_id": 0}).to_list(5000)
+    ativos = [r for r in rows if r.get("status") != "cancelado"]
+    liq = lambda r: _num(r.get("valor")) - _num(r.get("desconto"))
+    recebido = sum(liq(r) for r in ativos if r["tipo"] == "receita" and r["status"] == "pago")
+    a_receber = sum(liq(r) for r in ativos if r["tipo"] == "receita" and r["status"] == "pendente")
+    pago_desp = sum(liq(r) for r in ativos if r["tipo"] == "despesa" and r["status"] == "pago")
+    a_pagar = sum(liq(r) for r in ativos if r["tipo"] == "despesa" and r["status"] == "pendente")
+    return {
+        "recebido": round(recebido, 2), "a_receber": round(a_receber, 2),
+        "despesas": round(pago_desp, 2), "a_pagar": round(a_pagar, 2),
+        "saldo": round(recebido - pago_desp, 2),
+        "total_lancamentos": len(ativos),
     }
 
 
