@@ -25,6 +25,11 @@ Administrador, Gestor, Recepcionista, Médico-Veterinário, Estagiário (clínic
 
 Validado por testing agent (backend 100% após fix de conflito de agenda; frontend smoke flows OK).
 
+## Implementado (2026-06) — Fase 2 (parcial)
+- Triagem Veterinária: sinais vitais, queixa, prioridade (normal/urgente/emergência), sinais de alerta; encaminhamento automático ao prontuário (cria registro com origem=triagem) e atualização da fila para "aguardando_consulta". Permissões: triagem:read/write.
+- Vacinação & Medicina Preventiva: registro de vacinas/vermífugos/ectoparasitas (lote, validade, dose, via, próxima dose, reações), carteira/histórico, aba de pendentes (destaca vencidas) e contador de pendências no dashboard. Permissões: vacina:read/write.
+- Verificado via API (triagem→prontuário, pendentes, dashboard) e screenshots das telas.
+
 ## Backlog priorizado
 - P0 (Fase 2): Triagem veterinária, Prescrições e documentos clínicos (PDF), Exames e resultados (anexos PDF), Vacinação e retornos.
 - P1 (Fase 3): Procedimentos, Estoque e farmácia, Financeiro/faturamento, Relatórios, Atendimento domiciliar, Comunicação com tutores.

@@ -43,18 +43,22 @@ ROLE_LABELS = {
 ALL_PERMS = {
     "users:manage", "tutores:read", "tutores:write", "pacientes:read", "pacientes:write",
     "agenda:read", "agenda:write", "fila:read", "fila:write", "prontuario:read", "prontuario:write",
+    "triagem:read", "triagem:write", "vacina:read", "vacina:write",
 }
 PERMISSIONS = {
     "admin": set(ALL_PERMS),
     "gestor": set(ALL_PERMS),
     "recepcionista": {"tutores:read", "tutores:write", "pacientes:read", "pacientes:write",
-                      "agenda:read", "agenda:write", "fila:read", "fila:write", "prontuario:read"},
+                      "agenda:read", "agenda:write", "fila:read", "fila:write", "prontuario:read",
+                      "triagem:read", "vacina:read"},
     "veterinario": {"tutores:read", "pacientes:read", "pacientes:write", "agenda:read", "agenda:write",
-                    "fila:read", "fila:write", "prontuario:read", "prontuario:write"},
+                    "fila:read", "fila:write", "prontuario:read", "prontuario:write",
+                    "triagem:read", "triagem:write", "vacina:read", "vacina:write"},
     "estagiario": {"tutores:read", "pacientes:read", "agenda:read", "fila:read",
-                   "prontuario:read", "prontuario:write"},
-    "auxiliar": {"tutores:read", "pacientes:read", "agenda:read", "fila:read", "fila:write", "prontuario:read"},
-    "estoque": {"pacientes:read"},
+                   "prontuario:read", "prontuario:write", "triagem:read", "triagem:write", "vacina:read"},
+    "auxiliar": {"tutores:read", "pacientes:read", "agenda:read", "fila:read", "fila:write",
+                 "prontuario:read", "triagem:read", "triagem:write", "vacina:read", "vacina:write"},
+    "estoque": {"pacientes:read", "vacina:read"},
     "financeiro": {"tutores:read", "pacientes:read", "agenda:read"},
 }
 
@@ -659,6 +663,8 @@ async def dashboard(user: dict = Depends(get_current_user)):
         "atendimentos_hoje": atend_hoje,
         "agendamentos_hoje": ag_hoje,
         "prontuarios_revisao": await db.prontuarios.count_documents({"status": "aguardando_revisao"}),
+        "vacinas_pendentes": await db.vacinas.count_documents(
+            {"proxima_dose": {"$ne": "", "$lte": (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")}}),
         "fila": await db.fila.find({"status": {"$nin": ["concluido", "falta", "cancelado"]}},
                                    {"_id": 0}).sort("chegada", 1).to_list(50),
         "agenda_hoje": await db.agendamentos.find(
@@ -677,6 +683,90 @@ async def list_profissionais(user: dict = Depends(get_current_user)):
     rows = await db.users.find({"role": {"$in": ["veterinario", "estagiario"]}, "active": True}).to_list(200)
     return [{"id": str(u["_id"]), "nome": u.get("name", ""), "role": u.get("role", ""),
              "conselho": u.get("conselho", "")} for u in rows]
+
+
+# ---------------- Triagem ----------------
+@api_router.get("/triagem")
+async def list_triagem(paciente_id: Optional[str] = None, user: dict = Depends(require("triagem:read"))):
+    query = {"paciente_id": paciente_id} if paciente_id else {}
+    return await db.triagem.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+
+@api_router.post("/triagem")
+async def create_triagem(body: dict, user: dict = Depends(require("triagem:write"))):
+    paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
+    if not paciente:
+        raise HTTPException(status_code=400, detail="Paciente inválido")
+    doc = {
+        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
+        "especie": paciente.get("especie", ""), "tutor_id": paciente["tutor_id"],
+        "fila_id": body.get("fila_id", ""),
+        "queixa_principal": body.get("queixa_principal", ""), "inicio_sinais": body.get("inicio_sinais", ""),
+        "historico": body.get("historico", ""), "temperatura": body.get("temperatura", ""),
+        "fc": body.get("fc", ""), "fr": body.get("fr", ""), "peso": body.get("peso", ""),
+        "dor": body.get("dor", ""), "hidratacao": body.get("hidratacao", ""),
+        "info_tutor": body.get("info_tutor", ""), "sinais_alerta": body.get("sinais_alerta", ""),
+        "prioridade": body.get("prioridade", "normal"), "observacoes": body.get("observacoes", ""),
+        "responsavel": user.get("name", ""), "profissional_id": str(user["_id"]),
+        "created_at": now_iso(),
+    }
+    await db.triagem.insert_one(doc)
+    # Encaminha ao prontuário: cria registro inicial vinculado
+    await db.prontuarios.insert_one({
+        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
+        "tutor_id": paciente["tutor_id"], "origem": "triagem", "triagem_id": doc["id"],
+        "motivo": "Atendimento após triagem", "queixa_principal": doc["queixa_principal"],
+        "anamnese": doc["historico"], "exame_fisico": "", "temperatura": doc["temperatura"],
+        "fc": doc["fc"], "fr": doc["fr"], "peso": doc["peso"], "lista_problemas": "", "hipoteses": "",
+        "diagnostico": "", "exames_solicitados": "", "plano_terapeutico": "", "prescricoes": "",
+        "orientacoes": "", "retorno": "", "profissional_id": "", "profissional_nome": "",
+        "status": "rascunho", "revisado_por": "", "correcoes": [], "created_at": now_iso(),
+    })
+    # Atualiza fila se veio da recepção
+    if doc["fila_id"]:
+        await db.fila.update_one({"id": doc["fila_id"]}, {"$set": {"status": "aguardando_consulta", "updated_at": now_iso()}})
+    await audit(user, "registrou triagem", "triagem", doc["id"], f"{paciente['nome']} ({doc['prioridade']})")
+    doc.pop("_id", None)
+    return doc
+
+
+# ---------------- Vacinas / Medicina Preventiva ----------------
+@api_router.get("/vacinas")
+async def list_vacinas(paciente_id: Optional[str] = None, user: dict = Depends(require("vacina:read"))):
+    query = {"paciente_id": paciente_id} if paciente_id else {}
+    return await db.vacinas.find(query, {"_id": 0}).sort("data_aplicacao", -1).to_list(1000)
+
+
+@api_router.get("/vacinas/pendentes")
+async def vacinas_pendentes(user: dict = Depends(require("vacina:read"))):
+    limite = (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
+    rows = await db.vacinas.find({"proxima_dose": {"$ne": "", "$lte": limite}}, {"_id": 0}).sort("proxima_dose", 1).to_list(500)
+    return rows
+
+
+@api_router.post("/vacinas")
+async def create_vacina(body: dict, user: dict = Depends(require("vacina:write"))):
+    paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
+    if not paciente:
+        raise HTTPException(status_code=400, detail="Paciente inválido")
+    doc = {
+        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
+        "especie": paciente.get("especie", ""), "tutor_id": paciente["tutor_id"],
+        "tipo": body.get("tipo", "vacina"), "nome": body.get("nome", ""),
+        "fabricante": body.get("fabricante", ""), "lote": body.get("lote", ""),
+        "validade": body.get("validade", ""), "data_aplicacao": body.get("data_aplicacao", ""),
+        "dose": body.get("dose", ""), "via": body.get("via", ""),
+        "proxima_dose": body.get("proxima_dose", ""), "reacoes": body.get("reacoes", ""),
+        "observacoes": body.get("observacoes", ""),
+        "responsavel": user.get("name", ""), "profissional_id": str(user["_id"]),
+        "created_at": now_iso(),
+    }
+    if not doc["nome"]:
+        raise HTTPException(status_code=400, detail="Informe o nome da vacina/produto")
+    await db.vacinas.insert_one(doc)
+    await audit(user, "registrou vacina", "vacina", doc["id"], f"{doc['nome']} - {paciente['nome']}")
+    doc.pop("_id", None)
+    return doc
 
 
 app.include_router(api_router)

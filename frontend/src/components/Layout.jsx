@@ -3,17 +3,19 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Users, PawPrint, CalendarDays, ClipboardList, Stethoscope,
-  ShieldCheck, LogOut, Menu, X, PlusCircle,
+  ShieldCheck, LogOut, Menu, X, PlusCircle, Activity, Syringe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const NAV = [
   { to: "/", label: "Painel Geral", icon: LayoutDashboard, perm: null, testid: "dashboard" },
   { to: "/recepcao", label: "Fila de Atendimento", icon: ClipboardList, perm: "fila:read", testid: "recepcao" },
+  { to: "/triagem", label: "Triagem", icon: Activity, perm: "triagem:read", testid: "triagem" },
   { to: "/agenda", label: "Agenda", icon: CalendarDays, perm: "agenda:read", testid: "agenda" },
   { to: "/tutores", label: "Tutores", icon: Users, perm: "tutores:read", testid: "tutores" },
   { to: "/pacientes", label: "Pacientes", icon: PawPrint, perm: "pacientes:read", testid: "pacientes" },
   { to: "/prontuarios", label: "Prontuários", icon: Stethoscope, perm: "prontuario:read", testid: "prontuarios" },
+  { to: "/vacinas", label: "Vacinação", icon: Syringe, perm: "vacina:read", testid: "vacinas" },
   { to: "/usuarios", label: "Usuários & Permissões", icon: ShieldCheck, perm: "users:manage", testid: "usuarios" },
 ];
 
