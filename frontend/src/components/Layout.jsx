@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Users, PawPrint, CalendarDays, ClipboardList, Stethoscope,
-  ShieldCheck, LogOut, Menu, X, PlusCircle, Activity, Syringe, FlaskConical,
+  ShieldCheck, LogOut, Menu, X, PlusCircle, Activity, Syringe, FlaskConical, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -16,6 +16,7 @@ const NAV = [
   { to: "/pacientes", label: "Pacientes", icon: PawPrint, perm: "pacientes:read", testid: "pacientes" },
   { to: "/prontuarios", label: "Prontuários", icon: Stethoscope, perm: "prontuario:read", testid: "prontuarios" },
   { to: "/exames", label: "Exames", icon: FlaskConical, perm: "exame:read", testid: "exames" },
+  { to: "/documentos", label: "Documentos", icon: FileText, perm: "prontuario:read", testid: "documentos" },
   { to: "/vacinas", label: "Vacinação", icon: Syringe, perm: "vacina:read", testid: "vacinas" },
   { to: "/usuarios", label: "Usuários & Permissões", icon: ShieldCheck, perm: "users:manage", testid: "usuarios" },
 ];

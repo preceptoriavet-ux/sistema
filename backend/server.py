@@ -19,6 +19,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
 
 from storage import put_object, get_object, build_path, init_storage, MIME_TYPES
+from pdfgen import build_documento_pdf, TIPO_TITULO
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -148,6 +149,34 @@ async def audit(user: dict, action: str, entity: str, entity_id: str, details: s
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+VACINA_PROTOCOLOS = {
+    "canino": {"v8": 21, "v10": 21, "v12": 21, "polivalente": 21, "multipla": 21, "giardia": 21,
+               "gripe": 365, "tosse dos canis": 365, "traqueobronquite": 365,
+               "antirrabica": 365, "raiva": 365, "leishmaniose": 365},
+    "felino": {"v3": 21, "v4": 21, "v5": 21, "triplice": 21, "quadrupla": 21, "quintupla": 21,
+               "leucemia": 21, "felv": 21, "antirrabica": 365, "raiva": 365},
+}
+
+
+def suggest_proxima_dose(especie: str, nome: str, data_aplicacao: str) -> str:
+    if not data_aplicacao:
+        return ""
+    nome_l = (nome or "").strip().lower()
+    dias = None
+    protos = VACINA_PROTOCOLOS.get(especie, {})
+    for k, v in protos.items():
+        if k in nome_l:
+            dias = v
+            break
+    if dias is None:
+        dias = 365 if any(x in nome_l for x in ["raiva", "antirrab"]) else 21
+    try:
+        base = datetime.fromisoformat(data_aplicacao)
+    except ValueError:
+        return ""
+    return (base + timedelta(days=dias)).strftime("%Y-%m-%d")
 
 
 # ---------------- Models ----------------
@@ -759,6 +788,9 @@ async def create_vacina(body: dict, user: dict = Depends(require("vacina:write")
     paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
     if not paciente:
         raise HTTPException(status_code=400, detail="Paciente inválido")
+    proxima = body.get("proxima_dose", "")
+    if not proxima:
+        proxima = suggest_proxima_dose(paciente.get("especie", ""), body.get("nome", ""), body.get("data_aplicacao", ""))
     doc = {
         "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
         "especie": paciente.get("especie", ""), "tutor_id": paciente["tutor_id"],
@@ -766,7 +798,7 @@ async def create_vacina(body: dict, user: dict = Depends(require("vacina:write")
         "fabricante": body.get("fabricante", ""), "lote": body.get("lote", ""),
         "validade": body.get("validade", ""), "data_aplicacao": body.get("data_aplicacao", ""),
         "dose": body.get("dose", ""), "via": body.get("via", ""),
-        "proxima_dose": body.get("proxima_dose", ""), "reacoes": body.get("reacoes", ""),
+        "proxima_dose": proxima, "reacoes": body.get("reacoes", ""),
         "observacoes": body.get("observacoes", ""),
         "responsavel": user.get("name", ""), "profissional_id": str(user["_id"]),
         "created_at": now_iso(),
@@ -785,12 +817,14 @@ EXAME_STATUS = ["solicitado", "coletado", "em_processamento", "concluido", "canc
 
 @api_router.get("/exames")
 async def list_exames(paciente_id: Optional[str] = None, status: Optional[str] = None,
-                      user: dict = Depends(require("exame:read"))):
+                      prontuario_id: Optional[str] = None, user: dict = Depends(require("exame:read"))):
     query = {}
     if paciente_id:
         query["paciente_id"] = paciente_id
     if status:
         query["status"] = status
+    if prontuario_id:
+        query["prontuario_id"] = prontuario_id
     return await db.exames.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
 
 
@@ -835,6 +869,77 @@ async def update_exame(eid: str, body: dict, user: dict = Depends(require("exame
     return await db.exames.find_one({"id": eid}, {"_id": 0})
 
 
+# ---------------- Config da Clínica ----------------
+DEFAULT_CLINIC = {
+    "id": "clinica", "nome": "VetCare Pro — Clínica Veterinária",
+    "endereco": "Rua das Acácias, 123 — Centro", "telefone": "(11) 4000-0000",
+    "cnpj": "", "email": "contato@vetcare.com",
+}
+
+
+@api_router.get("/config/clinica")
+async def get_clinica(user: dict = Depends(get_current_user)):
+    c = await db.config.find_one({"id": "clinica"}, {"_id": 0})
+    return c or DEFAULT_CLINIC
+
+
+@api_router.put("/config/clinica")
+async def update_clinica(body: dict, user: dict = Depends(require("users:manage"))):
+    fields = ["nome", "endereco", "telefone", "cnpj", "email"]
+    updates = {k: body[k] for k in fields if k in body}
+    await db.config.update_one({"id": "clinica"}, {"$set": updates}, upsert=True)
+    await audit(user, "atualizou config", "clinica", "clinica", "")
+    return await db.config.find_one({"id": "clinica"}, {"_id": 0})
+
+
+# ---------------- Documentos Clínicos (PDF) ----------------
+@api_router.get("/documentos")
+async def list_documentos(paciente_id: Optional[str] = None, user: dict = Depends(require("prontuario:read"))):
+    query = {"paciente_id": paciente_id} if paciente_id else {}
+    return await db.documentos.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+
+@api_router.post("/documentos")
+async def create_documento(body: dict, user: dict = Depends(require("prontuario:write"))):
+    paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
+    if not paciente:
+        raise HTTPException(status_code=400, detail="Paciente inválido")
+    tipo = body.get("tipo", "")
+    if tipo not in TIPO_TITULO:
+        raise HTTPException(status_code=400, detail="Tipo de documento inválido")
+    tutor = await db.tutores.find_one({"id": paciente["tutor_id"]}, {"_id": 0})
+    clinic = await db.config.find_one({"id": "clinica"}, {"_id": 0}) or DEFAULT_CLINIC
+    agora = datetime.now(timezone.utc)
+    pinfo = " / ".join([x for x in [paciente.get("especie", ""), paciente.get("raca", "")] if x]) or "—"
+    render = {
+        "tipo": tipo, "paciente_nome": paciente["nome"], "tutor_nome": tutor.get("nome", "") if tutor else "",
+        "paciente_info": pinfo, "data_fmt": agora.strftime("%d/%m/%Y %H:%M"),
+        "corpo": body.get("corpo", ""), "medicamentos": body.get("medicamentos", ""),
+        "profissional_nome": user.get("name", ""), "conselho": user.get("conselho", ""),
+    }
+    pdf_bytes = build_documento_pdf(render, clinic)
+    path = build_path("pdf")
+    result = put_object(path, pdf_bytes, "application/pdf")
+    doc = {
+        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
+        "tutor_id": paciente["tutor_id"], "tutor_nome": render["tutor_nome"],
+        "tipo": tipo, "titulo": TIPO_TITULO[tipo], "corpo": body.get("corpo", ""),
+        "medicamentos": body.get("medicamentos", ""), "prontuario_id": body.get("prontuario_id", ""),
+        "pdf_path": result["path"], "pdf_nome": f"{tipo}_{paciente['nome']}.pdf",
+        "profissional_nome": user.get("name", ""), "profissional_id": str(user["_id"]),
+        "created_at": now_iso(),
+    }
+    await db.files.insert_one({
+        "id": str(uuid.uuid4()), "storage_path": result["path"], "original_filename": doc["pdf_nome"],
+        "content_type": "application/pdf", "size": result.get("size", len(pdf_bytes)),
+        "is_deleted": False, "created_at": now_iso(), "uploaded_by": str(user["_id"]),
+    })
+    await db.documentos.insert_one(doc)
+    await audit(user, "emitiu documento", "documento", doc["id"], f"{TIPO_TITULO[tipo]} - {paciente['nome']}")
+    doc.pop("_id", None)
+    return doc
+
+
 app.include_router(api_router)
 
 app.add_middleware(
@@ -867,6 +972,8 @@ async def startup():
         logger.info("Storage inicializado")
     except Exception as e:
         logger.error(f"Storage init falhou: {e}")
+    if await db.config.find_one({"id": "clinica"}) is None:
+        await db.config.insert_one(dict(DEFAULT_CLINIC))
 
 
 @app.on_event("shutdown")

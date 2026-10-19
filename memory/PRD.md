@@ -35,6 +35,12 @@ Validado por testing agent (backend 100% após fix de conflito de agenda; fronte
 - Alerta de Emergência no painel: destaque das triagens com prioridade de emergência do dia + contador de exames críticos.
 - Verificado via API (CRUD de exame, update de status, RBAC financeiro→403, dashboard) e screenshots.
 
+## Implementado (2026-06) — Documentos PDF + Integrações
+- Documentos Clínicos em PDF (reportlab): receita/prescrição, atestado, declaração, orientações, encaminhamento, relatório e alta. Gerado com cabeçalho da clínica, dados do paciente/tutor, corpo e assinatura do profissional (nome + CRMV); armazenado em object storage e aberto/impresso via link. Config da clínica em db.config (seed padrão, editável por admin via /api/config/clinica).
+- Resultado de exames dentro do prontuário: a tela de prontuário lista os exames do paciente com status, resultado e link do laudo; filtro /exames?prontuario_id adicionado.
+- Protocolos de vacina: sugestão automática da próxima dose por espécie + tipo (ex.: V10 canino → +21 dias, antirrábica → +365 dias), no backend (fallback ao salvar) e no frontend (hint "Sugerido pelo protocolo").
+- PDF verificado visualmente (render PNG) e demais fluxos via API + screenshots.
+
 ## Backlog priorizado
 - P0 (Fase 2): Triagem veterinária, Prescrições e documentos clínicos (PDF), Exames e resultados (anexos PDF), Vacinação e retornos.
 - P1 (Fase 3): Procedimentos, Estoque e farmácia, Financeiro/faturamento, Relatórios, Atendimento domiciliar, Comunicação com tutores.

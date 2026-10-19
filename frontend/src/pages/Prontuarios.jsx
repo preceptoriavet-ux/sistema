@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { api, formatApiError } from "@/lib/api";
+import { api, formatApiError, fileUrl } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { especieLabel } from "@/lib/constants";
@@ -25,14 +25,18 @@ export default function Prontuarios() {
   const [form, setForm] = useState(EMPTY);
   const [editId, setEditId] = useState(null);
   const [editStatus, setEditStatus] = useState("");
+  const [exames, setExames] = useState([]);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => { const { data } = await api.get("/prontuarios"); setRows(data); }, []);
   useEffect(() => { load(); api.get("/pacientes").then((r) => setPacientes(r.data)); }, [load]);
 
   const field = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const openNew = () => { setForm(EMPTY); setEditId(null); setEditStatus(""); setOpen(true); };
-  const openView = (r) => { setForm({ ...EMPTY, ...r }); setEditId(r.id); setEditStatus(r.status); setOpen(true); };
+  const openNew = () => { setForm(EMPTY); setEditId(null); setEditStatus(""); setExames([]); setOpen(true); };
+  const openView = (r) => {
+    setForm({ ...EMPTY, ...r }); setEditId(r.id); setEditStatus(r.status); setOpen(true);
+    api.get(`/exames?paciente_id=${r.paciente_id}`).then((res) => setExames(res.data)).catch(() => setExames([]));
+  };
 
   const save = async (finalizar) => {
     if (!form.paciente_id) return toast.error("Selecione o paciente");
@@ -114,6 +118,25 @@ export default function Prontuarios() {
               <div><Label>Prescrições</Label><Textarea rows={3} value={form.prescricoes} onChange={(e) => field("prescricoes", e.target.value)} disabled={locked} /></div>
               <div><Label>Orientações ao tutor</Label><Textarea rows={2} value={form.orientacoes} onChange={(e) => field("orientacoes", e.target.value)} disabled={locked} /></div>
               <div><Label>Retorno</Label><Input value={form.retorno} onChange={(e) => field("retorno", e.target.value)} disabled={locked} placeholder="ex: 15 dias" /></div>
+              {editId && exames.length > 0 && (
+                <div className="rounded-lg border bg-secondary/40 p-3" data-testid="prontuario-exames-section">
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">Exames do Paciente</p>
+                  <div className="space-y-2">
+                    {exames.map((ex) => (
+                      <div key={ex.id} className="rounded-md border bg-card p-2.5 text-sm" data-testid={`prontuario-exame-${ex.id}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">{ex.tipo}{ex.critico && <Badge className="ml-1.5 bg-rose-100 text-rose-800 border-rose-300 text-[10px]">Crítico</Badge>}</span>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-[10px]">{ex.status}</Badge>
+                            {ex.laudo_path && <a href={fileUrl(ex.laudo_path)} target="_blank" rel="noreferrer" className="text-xs text-primary" data-testid={`prontuario-laudo-${ex.id}`}>Laudo</a>}
+                          </div>
+                        </div>
+                        {ex.resultado && <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{ex.resultado}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </TabsContent>
           </Tabs>
           {locked && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">Registro finalizado. Correções são rastreadas e não apagam o histórico.</p>}

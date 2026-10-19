@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { especieLabel } from "@/lib/constants";
+import { especieLabel, suggestProximaDose } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Syringe, AlertTriangle } from "lucide-react";
+import { Plus, Syringe, AlertTriangle, Sparkles } from "lucide-react";
 
 const TIPO = { vacina: "Vacina", vermifugo: "Vermífugo", ectoparasita: "Ectoparasita" };
 const EMPTY = { paciente_id: "", tipo: "vacina", nome: "", fabricante: "", lote: "", validade: "", data_aplicacao: new Date().toISOString().slice(0, 10), dose: "", via: "", proxima_dose: "", reacoes: "", observacoes: "" };
@@ -35,6 +35,12 @@ export default function Vacinas() {
 
   const field = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const openNew = () => { setForm(EMPTY); setOpen(true); };
+
+  const especieSel = pacientes.find((p) => p.id === form.paciente_id)?.especie || "";
+  const sugestao = suggestProximaDose(especieSel, form.nome, form.data_aplicacao);
+  useEffect(() => {
+    if (open && sugestao && !form.proxima_dose) setForm((f) => ({ ...f, proxima_dose: sugestao }));
+  }, [open, sugestao]); // eslint-disable-line
 
   const save = async () => {
     if (!form.paciente_id) return toast.error("Selecione o paciente");
@@ -121,7 +127,13 @@ export default function Vacinas() {
             <div><Label>Data de aplicação</Label><Input type="date" value={form.data_aplicacao} onChange={(e) => field("data_aplicacao", e.target.value)} data-testid="vacina-data-input" /></div>
             <div><Label>Dose</Label><Input value={form.dose} onChange={(e) => field("dose", e.target.value)} /></div>
             <div><Label>Via</Label><Input value={form.via} onChange={(e) => field("via", e.target.value)} placeholder="SC, IM..." /></div>
-            <div><Label>Próxima dose</Label><Input type="date" value={form.proxima_dose} onChange={(e) => field("proxima_dose", e.target.value)} data-testid="vacina-proxima-input" /></div>
+            <div><Label>Próxima dose</Label><Input type="date" value={form.proxima_dose} onChange={(e) => field("proxima_dose", e.target.value)} data-testid="vacina-proxima-input" />
+              {sugestao && (
+                <button type="button" onClick={() => field("proxima_dose", sugestao)} className="mt-1 inline-flex items-center gap-1 text-xs text-primary" data-testid="vacina-sugestao-btn">
+                  <Sparkles className="h-3 w-3" />Sugerido pelo protocolo: {sugestao.split("-").reverse().join("/")}
+                </button>
+              )}
+            </div>
             <div className="sm:col-span-2"><Label>Reações adversas</Label><Textarea rows={2} value={form.reacoes} onChange={(e) => field("reacoes", e.target.value)} /></div>
           </div>
           <DialogFooter>

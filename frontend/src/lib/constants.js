@@ -48,3 +48,31 @@ export const AG_STATUS = [
   { value: "falta", label: "Falta" },
   { value: "cancelado", label: "Cancelado" },
 ];
+
+export const TIPOS_DOCUMENTO = [
+  { value: "receita", label: "Receita / Prescrição", medicamentos: true },
+  { value: "atestado", label: "Atestado" },
+  { value: "declaracao", label: "Declaração de Comparecimento" },
+  { value: "orientacao", label: "Orientações ao Tutor" },
+  { value: "encaminhamento", label: "Encaminhamento" },
+  { value: "relatorio", label: "Relatório Clínico" },
+  { value: "alta", label: "Recomendações de Alta" },
+];
+
+const VACINA_PROTOCOLOS = {
+  canino: { v8: 21, v10: 21, v12: 21, polivalente: 21, multipla: 21, giardia: 21, gripe: 365, "tosse dos canis": 365, antirrabica: 365, raiva: 365, leishmaniose: 365 },
+  felino: { v3: 21, v4: 21, v5: 21, triplice: 21, quadrupla: 21, quintupla: 21, leucemia: 21, felv: 21, antirrabica: 365, raiva: 365 },
+};
+
+export function suggestProximaDose(especie, nome, dataAplicacao) {
+  if (!dataAplicacao) return "";
+  const nl = (nome || "").trim().toLowerCase();
+  const protos = VACINA_PROTOCOLOS[especie] || {};
+  let dias = null;
+  for (const k of Object.keys(protos)) if (nl.includes(k)) { dias = protos[k]; break; }
+  if (dias == null) dias = /raiva|antirrab/.test(nl) ? 365 : 21;
+  const d = new Date(dataAplicacao + "T00:00:00");
+  if (isNaN(d)) return "";
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().slice(0, 10);
+}

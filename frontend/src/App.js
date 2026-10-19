@@ -11,6 +11,7 @@ import Recepcao from "@/pages/Recepcao";
 import Prontuarios from "@/pages/Prontuarios";
 import Triagem from "@/pages/Triagem";
 import Exames from "@/pages/Exames";
+import Documentos from "@/pages/Documentos";
 import Vacinas from "@/pages/Vacinas";
 import Usuarios from "@/pages/Usuarios";
 
@@ -34,6 +35,7 @@ function AppRoutes() {
       <Route path="/prontuarios" element={<Protected><Prontuarios /></Protected>} />
       <Route path="/triagem" element={<Protected><Triagem /></Protected>} />
       <Route path="/exames" element={<Protected><Exames /></Protected>} />
+      <Route path="/documentos" element={<Protected><Documentos /></Protected>} />
       <Route path="/vacinas" element={<Protected><Vacinas /></Protected>} />
       <Route path="/usuarios" element={<Protected><Usuarios /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />
