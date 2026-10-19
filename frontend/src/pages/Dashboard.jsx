@@ -40,6 +40,22 @@ export default function Dashboard() {
         <Kpi icon={PawPrint} label="Pacientes" value={data?.total_pacientes} testid="kpi-pacientes-card" tint="bg-violet-100 text-violet-700" />
       </div>
 
+      {data?.emergencias?.length > 0 && (
+        <div className="rounded-xl border-2 border-rose-300 bg-rose-50 p-4 animate-fade-up" data-testid="emergency-alert">
+          <div className="flex items-center gap-2 text-rose-800 font-semibold mb-2">
+            <AlertTriangle className="h-5 w-5" /> {data.emergencias.length} emergência(s) na triagem hoje
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {data.emergencias.map((e) => (
+              <div key={e.id} className="rounded-lg bg-white border border-rose-200 px-3 py-1.5 text-sm" data-testid={`emergency-${e.id}`}>
+                <span className="font-medium">{e.paciente_nome}</span>
+                <span className="text-muted-foreground"> · {e.queixa_principal || "—"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 p-5">
           <div className="flex items-center justify-between mb-4">

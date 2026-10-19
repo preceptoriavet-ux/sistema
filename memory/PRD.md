@@ -30,6 +30,11 @@ Validado por testing agent (backend 100% após fix de conflito de agenda; fronte
 - Vacinação & Medicina Preventiva: registro de vacinas/vermífugos/ectoparasitas (lote, validade, dose, via, próxima dose, reações), carteira/histórico, aba de pendentes (destaca vencidas) e contador de pendências no dashboard. Permissões: vacina:read/write.
 - Verificado via API (triagem→prontuário, pendentes, dashboard) e screenshots das telas.
 
+## Implementado (2026-06) — Exames + Alertas
+- Exames Laboratoriais e de Imagem: solicitação, categoria (laboratorial/imagem), laboratório, data de coleta, status (solicitado/coletado/em_processamento/concluído/cancelado), resultado, sinalização de resultado crítico, anexo de laudo em PDF/imagem (object storage) e observações/pendências. Permissões: exame:read/write.
+- Alerta de Emergência no painel: destaque das triagens com prioridade de emergência do dia + contador de exames críticos.
+- Verificado via API (CRUD de exame, update de status, RBAC financeiro→403, dashboard) e screenshots.
+
 ## Backlog priorizado
 - P0 (Fase 2): Triagem veterinária, Prescrições e documentos clínicos (PDF), Exames e resultados (anexos PDF), Vacinação e retornos.
 - P1 (Fase 3): Procedimentos, Estoque e farmácia, Financeiro/faturamento, Relatórios, Atendimento domiciliar, Comunicação com tutores.

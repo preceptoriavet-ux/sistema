@@ -44,20 +44,24 @@ ALL_PERMS = {
     "users:manage", "tutores:read", "tutores:write", "pacientes:read", "pacientes:write",
     "agenda:read", "agenda:write", "fila:read", "fila:write", "prontuario:read", "prontuario:write",
     "triagem:read", "triagem:write", "vacina:read", "vacina:write",
+    "exame:read", "exame:write",
 }
 PERMISSIONS = {
     "admin": set(ALL_PERMS),
     "gestor": set(ALL_PERMS),
     "recepcionista": {"tutores:read", "tutores:write", "pacientes:read", "pacientes:write",
                       "agenda:read", "agenda:write", "fila:read", "fila:write", "prontuario:read",
-                      "triagem:read", "vacina:read"},
+                      "triagem:read", "vacina:read", "exame:read"},
     "veterinario": {"tutores:read", "pacientes:read", "pacientes:write", "agenda:read", "agenda:write",
                     "fila:read", "fila:write", "prontuario:read", "prontuario:write",
-                    "triagem:read", "triagem:write", "vacina:read", "vacina:write"},
+                    "triagem:read", "triagem:write", "vacina:read", "vacina:write",
+                    "exame:read", "exame:write"},
     "estagiario": {"tutores:read", "pacientes:read", "agenda:read", "fila:read",
-                   "prontuario:read", "prontuario:write", "triagem:read", "triagem:write", "vacina:read"},
+                   "prontuario:read", "prontuario:write", "triagem:read", "triagem:write", "vacina:read",
+                   "exame:read", "exame:write"},
     "auxiliar": {"tutores:read", "pacientes:read", "agenda:read", "fila:read", "fila:write",
-                 "prontuario:read", "triagem:read", "triagem:write", "vacina:read", "vacina:write"},
+                 "prontuario:read", "triagem:read", "triagem:write", "vacina:read", "vacina:write",
+                 "exame:read", "exame:write"},
     "estoque": {"pacientes:read", "vacina:read"},
     "financeiro": {"tutores:read", "pacientes:read", "agenda:read"},
 }
@@ -653,6 +657,10 @@ async def validar_prontuario(rid: str, user: dict = Depends(require("prontuario:
 async def dashboard(user: dict = Depends(get_current_user)):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     fila_ativa = await db.fila.count_documents({"status": {"$nin": ["concluido", "falta", "cancelado"]}})
+    emergencias = await db.triagem.find(
+        {"prioridade": "emergencia", "created_at": {"$gte": today}}, {"_id": 0}
+    ).sort("created_at", -1).to_list(20)
+    exames_criticos = await db.exames.count_documents({"critico": True, "status": {"$ne": "cancelado"}})
     atend_hoje = await db.fila.count_documents({"chegada": {"$gte": today}})
     ag_hoje = await db.agendamentos.count_documents({
         "inicio": {"$gte": today, "$lte": today + "T23:59:59"}, "status": {"$nin": ["cancelado"]}})
@@ -665,6 +673,8 @@ async def dashboard(user: dict = Depends(get_current_user)):
         "prontuarios_revisao": await db.prontuarios.count_documents({"status": "aguardando_revisao"}),
         "vacinas_pendentes": await db.vacinas.count_documents(
             {"proxima_dose": {"$ne": "", "$lte": (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")}}),
+        "emergencias": emergencias,
+        "exames_criticos": exames_criticos,
         "fila": await db.fila.find({"status": {"$nin": ["concluido", "falta", "cancelado"]}},
                                    {"_id": 0}).sort("chegada", 1).to_list(50),
         "agenda_hoje": await db.agendamentos.find(
@@ -767,6 +777,62 @@ async def create_vacina(body: dict, user: dict = Depends(require("vacina:write")
     await audit(user, "registrou vacina", "vacina", doc["id"], f"{doc['nome']} - {paciente['nome']}")
     doc.pop("_id", None)
     return doc
+
+
+# ---------------- Exames ----------------
+EXAME_STATUS = ["solicitado", "coletado", "em_processamento", "concluido", "cancelado"]
+
+
+@api_router.get("/exames")
+async def list_exames(paciente_id: Optional[str] = None, status: Optional[str] = None,
+                      user: dict = Depends(require("exame:read"))):
+    query = {}
+    if paciente_id:
+        query["paciente_id"] = paciente_id
+    if status:
+        query["status"] = status
+    return await db.exames.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+
+@api_router.post("/exames")
+async def create_exame(body: dict, user: dict = Depends(require("exame:write"))):
+    paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
+    if not paciente:
+        raise HTTPException(status_code=400, detail="Paciente inválido")
+    doc = {
+        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
+        "especie": paciente.get("especie", ""), "tutor_id": paciente["tutor_id"],
+        "prontuario_id": body.get("prontuario_id", ""),
+        "tipo": body.get("tipo", ""), "categoria": body.get("categoria", "laboratorial"),
+        "laboratorio": body.get("laboratorio", ""), "data_coleta": body.get("data_coleta", ""),
+        "status": body.get("status", "solicitado"), "resultado": body.get("resultado", ""),
+        "critico": bool(body.get("critico", False)), "laudo_path": body.get("laudo_path", ""),
+        "laudo_nome": body.get("laudo_nome", ""), "observacoes": body.get("observacoes", ""),
+        "solicitante": user.get("name", ""), "profissional_id": str(user["_id"]),
+        "created_at": now_iso(),
+    }
+    if not doc["tipo"]:
+        raise HTTPException(status_code=400, detail="Informe o tipo de exame")
+    await db.exames.insert_one(doc)
+    await audit(user, "solicitou exame", "exame", doc["id"], f"{doc['tipo']} - {paciente['nome']}")
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.put("/exames/{eid}")
+async def update_exame(eid: str, body: dict, user: dict = Depends(require("exame:write"))):
+    existing = await db.exames.find_one({"id": eid})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Exame não encontrado")
+    fields = ["tipo", "categoria", "laboratorio", "data_coleta", "status", "resultado", "critico",
+              "laudo_path", "laudo_nome", "observacoes"]
+    updates = {k: body[k] for k in fields if k in body}
+    if "critico" in updates:
+        updates["critico"] = bool(updates["critico"])
+    updates["updated_at"] = now_iso()
+    await db.exames.update_one({"id": eid}, {"$set": updates})
+    await audit(user, "atualizou exame", "exame", eid, updates.get("status", ""))
+    return await db.exames.find_one({"id": eid}, {"_id": 0})
 
 
 app.include_router(api_router)
