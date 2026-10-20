@@ -107,3 +107,10 @@ Triagem (encaminhamento automático ao prontuário + sinais de alerta), geraçã
 - UI: /pacientes/:id/historico (PacienteHistorico.jsx + components/historico/*), botão "Linha do tempo" nos cards de Pacientes, filtros por tipo/período, "Ir para Nº", expandir itens, abrir prontuário/PDF/laudo, Exportar PDF.
 - Testado: iteration_2.json (backend 22/22); correções de fuso/agrupamento, reset de filtros e layout mobile verificadas por screenshot.
 - Pendente/conhecido: excluir paciente não remove registros clínicos vinculados (ficam órfãos).
+
+## 2026-10 — Proteção de exclusão, Inativação e Gráfico de Peso (DONE)
+- DELETE /api/pacientes/{id}: 409 se houver prontuários (exceto rascunhos vazios auto-criados pelo agendamento), exames, documentos, triagens ou vacinas — mensagem com contagens. Sem registros: exclui paciente + agendamentos/fila + rascunhos vazios.
+- PUT /api/pacientes/{id}/ativo: inativar/reativar (ativo, inativado_at, inativado_por). Inativar cancela agendamentos pendentes e fila ativa. Inativos ocultos em /api/pacientes (incluir_inativos=true) e bloqueados para novos registros (creates, chegada, iniciar atendimento).
+- Linha do tempo: série "pesos" (prontuários + triagens + cadastro via peso_atualizado_at) → PesoChart (recharts) com último peso e variação. Rascunhos vazios de agendamento não aparecem.
+- UI: PacienteAcoes (Inativar/Reativar/Excluir com bloqueio), switch "Mostrar inativos", DateInput (shadcn Calendar pt-BR) no período do histórico e data de nascimento.
+- Testes: iteration_3.json + correções; pytest 39/39; conftest.py limpa dados TEST_ ao final.

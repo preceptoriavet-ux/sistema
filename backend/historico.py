@@ -52,6 +52,15 @@ def _ev(tipo: str, r: dict, data: str, titulo: str, status: str, campos: list, *
             "paciente_codigo": r.get("paciente_codigo"), **extra}
 
 
+PRONT_CLINICOS = ["queixa_principal", "anamnese", "exame_fisico", "temperatura", "fc", "fr", "peso", "lista_problemas",
+                  "hipoteses", "diagnostico", "exames_solicitados", "plano_terapeutico", "prescricoes", "orientacoes", "retorno"]
+
+
+def prontuario_vazio(p: dict) -> bool:
+    return (p.get("origem") == "agendamento" and p.get("status") == "rascunho" and not p.get("iniciado_at")
+            and not p.get("triagem_id") and not any(str(p.get(k) or "").strip() for k in PRONT_CLINICOS))
+
+
 def _num(v):
     try:
         return round(float(str(v).replace(",", ".").strip()), 2)
@@ -68,9 +77,9 @@ def serie_peso(fontes: dict, paciente: dict) -> list:
                 pts.append({"data_local": data_local(r.get("created_at", "")), "peso": peso, "fonte": fonte})
     peso = _num(paciente.get("peso"))
     if peso and peso > 0:
-        pts.append({"data_local": data_local(paciente.get("updated_at") or paciente.get("created_at", "")),
+        pts.append({"data_local": data_local(paciente.get("peso_atualizado_at") or paciente.get("created_at", "")),
                     "peso": peso, "fonte": "Cadastro"})
-    pts.sort(key=lambda x: x["data_local"])
+    pts.sort(key=lambda x: (x["data_local"], x["fonte"] != "Cadastro"))
     return pts
 
 
@@ -89,6 +98,8 @@ def build_eventos(fontes: dict) -> list:
                        ("Observações", t.get("observacoes")), ("Responsável", t.get("responsavel"))],
                       prioridade=t.get("prioridade") or "normal"))
     for p in fontes.get("prontuarios", []):
+        if prontuario_vazio(p):
+            continue
         ev.append(_ev("prontuario", p, p.get("created_at"),
                       f"Prontuário — {p.get('diagnostico') or p.get('queixa_principal') or p.get('motivo') or 'Consulta'}",
                       p.get("status", ""),

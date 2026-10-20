@@ -15,6 +15,7 @@ import { Search, Plus, Pencil, AlertTriangle, Upload, History } from "lucide-rea
 import { useNavigate } from "react-router-dom";
 import { Switch } from "@/components/ui/switch";
 import { PacienteAcoes } from "@/components/PacienteAcoes";
+import { DateInput } from "@/components/DateInput";
 
 const EMPTY = { tutor_id: "", nome: "", especie: "canino", raca: "", sexo: "macho", data_nascimento: "", idade_estimada: "", cor: "", peso: "", microchip: "", estado_reprodutivo: "", alergias: "", doencas_preexistentes: "", medicamentos_continuos: "", alertas: "", foto: "", situacao: "ativo" };
 
@@ -137,7 +138,7 @@ export default function Pacientes() {
                 <SelectContent>{SEXOS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div><Label>Data de nascimento</Label><Input type="date" value={form.data_nascimento} onChange={(e) => field("data_nascimento", e.target.value)} /></div>
+            <div><Label>Data de nascimento</Label><DateInput value={form.data_nascimento} onChange={(v) => field("data_nascimento", v)} testId="paciente-data-nascimento" /></div>
             <div><Label>Idade estimada</Label><Input value={form.idade_estimada} onChange={(e) => field("idade_estimada", e.target.value)} placeholder="ex: 3 anos" /></div>
             <div><Label>Cor / características</Label><Input value={form.cor} onChange={(e) => field("cor", e.target.value)} /></div>
             <div><Label>Peso atual (kg)</Label><Input value={form.peso} onChange={(e) => field("peso", e.target.value)} /></div>

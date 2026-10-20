@@ -1,0 +1,37 @@
+{
+  "summary": "Tested deletion protection, patient inactivation, the inactive-patient block on new records, and the weight series and chart. Backend: 15/17 new pytest tests pass, plus the 22 regression tests (historico and triagem). Frontend: every requested flow works (show-inactive switch, badge and opacity, blocked-delete message with counts, inactivate from the block dialog, reactivate, clean delete, peso-chart with last weight, change and tooltip showing the source, empty state, inactive notice). Timeline regression is OK (Ir para Nº, date filter and clear, PDF export opens a new tab). Two backend gaps were found.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "DELETE /api/pacientes/{id}", "issue": "POST /agendamentos always creates an empty draft prontuário (novo_prontuario_agendamento). So a patient with only an agendamento is blocked with 409 '1 prontuário(s)'. The path 'patient without records is deleted and its agendamentos removed' cannot be reached for agendamentos. The empty draft also counts in the timeline counters.", "priority": "HIGH"},
+      {"endpoint": "POST /api/agendamentos/{aid}/chegada and POST /api/agendamentos/{aid}/iniciar", "issue": "Neither endpoint checks paciente.ativo. An agendamento created before inactivation still allows check-in (creates a fila entry) and starting the visit (creates or starts a prontuário). Both return 200 for an inactive patient, which breaks the rule that new records are blocked. Inactivating a patient also leaves its future agendamentos untouched.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/pacientes/{id}/historico (pesos)", "issue": "The Cadastro point is dated with updated_at or created_at. Any edit to the patient (for example the name) moves the cadastro weight to the latest date even if the weight did not change. data_local is cut to seconds and the sort is stable, so records with the same timestamp always put Cadastro after Triagem/Prontuário. This happened in my test and showed a misleading change of -0.7 kg."},
+      {"endpoint": "tests teardown", "issue": "The teardowns in test_historico.py and test_triagem.py call DELETE on patients that have records. They now get 409 silently, so TEST_ patients and tutors build up (TEST_Pet Hist, TEST_Pet Triagem, TEST_Bidu are visible in the list). Consider an admin purge for TEST_ data, or inactivate in teardown."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Patient edit dialog and timeline period filters", "issues": ["Still uses the browser's native input type=date (shown as mm/dd/yyyy, English format). Already flagged in iteration 2; use the shadcn Calendar in pt-BR."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_paciente_exclusao_peso.py", "/app/test_reports/pytest/pytest_exclusao.xml"],
+  "action_items": [
+    "Do not let empty auto-created draft prontuários block deletion: either count only prontuários that were started or have content, or delete untouched drafts together with the agendamentos when deleting the patient.",
+    "Add the paciente.ativo check to POST /agendamentos/{aid}/chegada and /iniciar (and /prontuarios/{rid}/iniciar). Optionally cancel future agendamentos, or warn about them, when inactivating.",
+    "Optional: date the Cadastro weight point with a dedicated peso_updated_at (set only when peso changes), and break sort ties so Cadastro comes first."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1511 lines; split it into routers.",
+    "The 'Paciente inativo' check is copied in 7 endpoints; extract it into a helper such as get_paciente_ativo(pid).",
+    "PUT /pacientes/{id}/ativo accepts a raw dict; bool(body.get('ativo')) treats a missing key or the string 'false' as false/true without validation. Use a Pydantic model."
+  ],
+  "updated_files": ["/app/backend/tests/test_paciente_exclusao_peso.py"],
+  "success_rate": {"backend": "88% (15/17 new tests; 22/22 regression)", "frontend": "100%"},
+  "seed_data_creation": "Created TEST_Tutor Excl, TEST_Tutor UI and TEST_Excl*/TEST_UI* patients. Patients with records were left inactive because they cannot be deleted; clean patients were deleted. Rex and Thor were not changed.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && REACT_APP_BACKEND_URL=... pytest tests/test_paciente_exclusao_peso.py -p no:xdist -o addopts=''. The 2 failing tests (test_delete_patient_with_only_agendamento and test_inactive_existing_agendamento_chegada_iniciar) cover the open bugs. Rex Nº1 pesos are [12 Cadastro 18/10, 20 Prontuário 20/10]. TEST_Excl Peso (Nº21) is inactive and has 3 weights; use it to check the inactive notice and the chart."
+}

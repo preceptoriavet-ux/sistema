@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, EmailStr
 
 from storage import put_object, get_object, build_path, init_storage, MIME_TYPES
 from pdfgen import build_documento_pdf, build_historico_pdf, TIPO_TITULO
-from historico import build_eventos, serie_peso
+from historico import build_eventos, serie_peso, prontuario_vazio
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -508,6 +508,8 @@ async def update_paciente(pid: str, body: dict, user: dict = Depends(require("pa
               "medicamentos_continuos", "alertas", "foto", "situacao", "tutor_id"]
     updates = {k: body[k] for k in fields if k in body}
     updates["updated_at"] = now_iso()
+    if "peso" in updates and str(updates["peso"]) != str(existing.get("peso", "")):
+        updates["peso_atualizado_at"] = now_iso()
     await db.pacientes.update_one({"id": pid}, {"$set": updates})
     await audit(user, "editou", "paciente", pid, existing.get("nome", ""))
     return await db.pacientes.find_one({"id": pid}, {"_id": 0})
@@ -522,12 +524,17 @@ async def delete_paciente(pid: str, user: dict = Depends(require("pacientes:writ
     paciente = await db.pacientes.find_one({"id": pid}, {"_id": 0})
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente não encontrado")
-    vinculos = [f"{n} {label}" for coll, label in BLOQUEIO_EXCLUSAO
-                if (n := await db[coll].count_documents({"paciente_id": pid}))]
+    pronts = await db.prontuarios.find({"paciente_id": pid}, {"_id": 0}).to_list(5000)
+    vazios = [p["id"] for p in pronts if prontuario_vazio(p)]
+    contagem = {"prontuarios": len(pronts) - len(vazios)}
+    for coll, _ in BLOQUEIO_EXCLUSAO[1:]:
+        contagem[coll] = await db[coll].count_documents({"paciente_id": pid})
+    vinculos = [f"{contagem[coll]} {label}" for coll, label in BLOQUEIO_EXCLUSAO if contagem[coll]]
     if vinculos:
         raise HTTPException(status_code=409, detail=f"Não é possível excluir: o paciente possui {', '.join(vinculos)}. "
                                                     "Inative o cadastro para preservar o histórico.")
     await db.pacientes.delete_one({"id": pid})
+    await db.prontuarios.delete_many({"id": {"$in": vazios}})
     await db.agendamentos.delete_many({"paciente_id": pid})
     await db.fila.delete_many({"paciente_id": pid})
     await audit(user, "excluiu", "paciente", pid, paciente["nome"])
@@ -542,7 +549,13 @@ async def ativar_paciente(pid: str, body: dict, user: dict = Depends(require("pa
     ativo = bool(body.get("ativo"))
     await db.pacientes.update_one({"id": pid}, {"$set": {
         "ativo": ativo, "inativado_at": "" if ativo else now_iso(), "inativado_por": "" if ativo else user.get("name", "")}})
-    await audit(user, "reativou" if ativo else "inativou", "paciente", pid, paciente["nome"])
+    if not ativo:
+        await db.agendamentos.update_many(
+            {"paciente_id": pid, "status": {"$in": ["agendado", "confirmado"]}},
+            {"$set": {"status": "cancelado", "cancelado_motivo": "Paciente inativado", "updated_at": now_iso()}})
+        await db.fila.update_many({"paciente_id": pid, "status": FILA_ATIVA},
+                                  {"$set": {"status": "cancelado", "updated_at": now_iso()}})
+        await audit(user, "reativou" if ativo else "inativou", "paciente", pid, paciente["nome"])
     return await db.pacientes.find_one({"id": pid}, {"_id": 0})
 
 
@@ -703,6 +716,12 @@ async def iniciar_atendimento(aid: str, user: dict = Depends(require("prontuario
 FILA_ATIVA = {"$nin": ["concluido", "falta", "cancelado"]}
 
 
+async def exigir_paciente_ativo(pid: str):
+    p = await db.pacientes.find_one({"id": pid}, {"_id": 0, "ativo": 1})
+    if p and p.get("ativo") is False:
+        raise HTTPException(status_code=400, detail="Paciente inativo — reative o cadastro para novos registros")
+
+
 async def fila_em_consulta(pront: dict, user: dict) -> str:
     aid = pront.get("agendamento_id", "")
     fila = aid and await db.fila.find_one({"agendamento_id": aid, "status": FILA_ATIVA}, {"_id": 0})
@@ -728,6 +747,7 @@ async def fila_em_consulta(pront: dict, user: dict) -> str:
 
 
 async def iniciar_prontuario_core(pront: dict, user: dict) -> dict:
+    await exigir_paciente_ativo(pront["paciente_id"])
     fila_id = await fila_em_consulta(pront, user)
     await db.prontuarios.update_one({"id": pront["id"]}, {"$set": {
         "iniciado_at": now_iso(), "profissional_id": str(user["_id"]), "profissional_nome": user.get("name", ""),
@@ -744,6 +764,7 @@ async def registrar_chegada(aid: str, user: dict = Depends(require("fila:write")
     ag = await db.agendamentos.find_one({"id": aid}, {"_id": 0})
     if not ag:
         raise HTTPException(status_code=404, detail="Agendamento não encontrado")
+    await exigir_paciente_ativo(ag["paciente_id"])
     if ag.get("status") in ("concluido", "cancelado", "falta"):
         raise HTTPException(status_code=400, detail="Agendamento já encerrado")
     fila = await db.fila.find_one({"paciente_id": ag["paciente_id"], "status": FILA_ATIVA}, {"_id": 0})

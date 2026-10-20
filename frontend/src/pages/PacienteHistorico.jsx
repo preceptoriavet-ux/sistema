@@ -9,6 +9,7 @@ import { ArrowLeft, FileDown, Search, X } from "lucide-react";
 import { HistoricoHeader } from "@/components/historico/HistoricoHeader";
 import { TimelineItem } from "@/components/historico/TimelineItem";
 import { PesoChart } from "@/components/historico/PesoChart";
+import { DateInput } from "@/components/DateInput";
 import { diaKey, parseData } from "@/components/historico/tipos";
 
 const diaLabel = (k) => { const d = parseData(k); return d ? d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "long", year: "numeric" }) : "Sem data"; };
@@ -76,8 +77,8 @@ export default function PacienteHistorico() {
       <PesoChart pesos={data.pesos} />
 
       <div className="flex flex-wrap items-end gap-3">
-        <div><Label className="text-xs">De</Label><Input type="date" value={periodo.data_ini} onChange={(e) => setPeriodo((p) => ({ ...p, data_ini: e.target.value }))} className="h-9" data-testid="historico-data-ini" /></div>
-        <div><Label className="text-xs">Até</Label><Input type="date" value={periodo.data_fim} onChange={(e) => setPeriodo((p) => ({ ...p, data_fim: e.target.value }))} className="h-9" data-testid="historico-data-fim" /></div>
+        <div className="w-44"><Label className="text-xs">De</Label><DateInput value={periodo.data_ini} onChange={(v) => setPeriodo((p) => ({ ...p, data_ini: v }))} className="h-9" testId="historico-data-ini" /></div>
+        <div className="w-44"><Label className="text-xs">Até</Label><DateInput value={periodo.data_fim} onChange={(v) => setPeriodo((p) => ({ ...p, data_fim: v }))} className="h-9" testId="historico-data-fim" /></div>
         {(tipos.length > 0 || periodo.data_ini || periodo.data_fim) && <Button variant="ghost" size="sm" onClick={() => { setTipos([]); setPeriodo({ data_ini: "", data_fim: "" }); }} data-testid="historico-limpar-filtros"><X className="h-4 w-4 mr-1" />Limpar filtros</Button>}
         <p className="ml-auto text-sm text-muted-foreground" data-testid="historico-total">{data.eventos.length} registro(s)</p>
       </div>
