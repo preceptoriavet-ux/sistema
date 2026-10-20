@@ -570,8 +570,43 @@ async def iniciar_atendimento(aid: str, user: dict = Depends(require("prontuario
     upd = {"iniciado_at": now_iso(), "profissional_id": str(user["_id"]), "profissional_nome": user.get("name", "")}
     await db.prontuarios.update_one({"id": pront["id"]}, {"$set": upd})
     await db.agendamentos.update_one({"id": aid}, {"$set": {"status": "em_atendimento", "updated_at": now_iso()}})
+    await fila_do_agendamento(aid, "em_consulta")
     await audit(user, "iniciou atendimento", "agendamento", aid, ag["paciente_nome"])
     return await db.prontuarios.find_one({"id": pront["id"]}, {"_id": 0})
+
+
+FILA_ATIVA = {"$nin": ["concluido", "falta", "cancelado"]}
+
+
+async def fila_do_agendamento(aid: str, status: str):
+    await db.fila.update_many({"agendamento_id": aid, "status": FILA_ATIVA},
+                              {"$set": {"status": status, "updated_at": now_iso()}})
+
+
+@api_router.post("/agendamentos/{aid}/chegada")
+async def registrar_chegada(aid: str, user: dict = Depends(require("fila:write"))):
+    ag = await db.agendamentos.find_one({"id": aid}, {"_id": 0})
+    if not ag:
+        raise HTTPException(status_code=404, detail="Agendamento não encontrado")
+    if ag.get("status") in ("concluido", "cancelado", "falta"):
+        raise HTTPException(status_code=400, detail="Agendamento já encerrado")
+    fila = await db.fila.find_one({"paciente_id": ag["paciente_id"], "status": FILA_ATIVA}, {"_id": 0})
+    if fila:
+        await db.fila.update_one({"id": fila["id"]}, {"$set": {"agendamento_id": aid, "updated_at": now_iso()}})
+    else:
+        paciente = await db.pacientes.find_one({"id": ag["paciente_id"]}, {"_id": 0}) or {}
+        fila = {
+            "id": str(uuid.uuid4()), "paciente_id": ag["paciente_id"], "paciente_nome": ag["paciente_nome"],
+            "especie": paciente.get("especie", ""), "tutor_id": ag["tutor_id"], "tutor_nome": ag.get("tutor_nome", ""),
+            "motivo": ag.get("motivo", ""), "tipo": "agendado", "prioridade": "normal",
+            "status": "aguardando_recepcao", "profissional_id": ag.get("profissional_id", ""),
+            "agendamento_id": aid, "chegada": now_iso(), "created_by": user.get("name", ""),
+        }
+        await db.fila.insert_one(fila)
+        fila.pop("_id", None)
+    await db.agendamentos.update_one({"id": aid}, {"$set": {"chegada_at": now_iso(), "fila_id": fila["id"]}})
+    await audit(user, "registrou chegada", "agendamento", aid, ag["paciente_nome"])
+    return await db.agendamentos.find_one({"id": aid}, {"_id": 0})
 
 
 @api_router.put("/agendamentos/{aid}")
@@ -754,6 +789,7 @@ async def concluir_atendimento(rid: str, body: dict, user: dict = Depends(requir
     if existing.get("agendamento_id"):
         await db.agendamentos.update_one({"id": existing["agendamento_id"]},
                                          {"$set": {"status": "concluido", "updated_at": now_iso()}})
+        await fila_do_agendamento(existing["agendamento_id"], "concluido")
     await audit(user, "concluiu atendimento", "prontuario", rid, existing.get("paciente_nome", ""))
     return await db.prontuarios.find_one({"id": rid}, {"_id": 0})
 

@@ -83,3 +83,8 @@ Triagem (encaminhamento automático ao prontuário + sinais de alerta), geraçã
 ## Backlog
 - P1: Estoque e Farmácia; Internação e Emergência; Atendimento Domiciliar; Procedimentos
 - P2: Comunicação com tutores; Requisitos de Clínica-Escola
+
+## 2026-10 — Chegada pela Agenda → Fila (DONE)
+- POST /api/agendamentos/{id}/chegada (fila:write): coloca o paciente na fila "aguardando_recepcao" (tipo agendado, agendamento_id); se já ativo na fila, só vincula (sem duplicar). Agendamento recebe chegada_at e fila_id.
+- Iniciar Atendimento → fila vinculada "em_consulta"; Concluir Atendimento → fila "concluido".
+- UI Agenda: botão "Registrar Chegada" + badge "Chegou HH:MM". Testado via curl + screenshot.

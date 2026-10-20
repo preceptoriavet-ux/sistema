@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Plus, Clock, PlayCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Clock, PlayCircle, UserCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const toDate = (d) => d.toISOString().slice(0, 10);
@@ -62,6 +62,14 @@ export default function Agenda() {
     finally { setSaving(false); }
   };
 
+  const chegada = async (e, a) => {
+    e.stopPropagation();
+    try {
+      await api.post(`/agendamentos/${a.id}/chegada`);
+      toast.success(`${a.paciente_nome} na fila — Aguardando Recepção`); load();
+    } catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
+  };
+
   const iniciar = async (e, a) => {
     e.stopPropagation();
     try {
@@ -97,6 +105,10 @@ export default function Agenda() {
               <p className="truncate text-xs text-muted-foreground">{a.tipo} · {a.profissional_nome || "Sem profissional"} {a.sala && `· ${a.sala}`}</p>
             </div>
             <Badge variant="outline">{AG_STATUS.find((s) => s.value === a.status)?.label || a.status}</Badge>
+            {a.chegada_at && <Badge className="bg-amber-100 text-amber-800 border-amber-300" data-testid={`chegada-badge-${a.id}`}><UserCheck className="h-3 w-3 mr-1" />Chegou {new Date(a.chegada_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</Badge>}
+            {can("fila:write") && !a.chegada_at && ["agendado", "confirmado"].includes(a.status) && (
+              <Button size="sm" variant="outline" onClick={(e) => chegada(e, a)} data-testid={`registrar-chegada-${a.id}`}><UserCheck className="h-4 w-4 mr-1.5" />Registrar Chegada</Button>
+            )}
             {can("prontuario:write") && !["concluido", "cancelado", "falta"].includes(a.status) && (
               <Button size="sm" onClick={(e) => iniciar(e, a)} data-testid={`iniciar-atendimento-${a.id}`}><PlayCircle className="h-4 w-4 mr-1.5" />Iniciar Atendimento</Button>
             )}
