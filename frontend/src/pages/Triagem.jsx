@@ -66,7 +66,7 @@ export default function Triagem() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => { const { data } = await api.get("/triagem"); setRows(data); }, []);
-  const loadFila = () => api.get("/fila").then((r) => setFila(r.data)).catch(() => {});
+  const loadFila = () => api.get("/fila").then((r) => setFila(r.data.filter((f) => ["aguardando_recepcao", "aguardando_triagem"].includes(f.status)))).catch(() => {});
   useEffect(() => { load(); loadFila(); api.get("/pacientes").then((r) => setPacientes(r.data)); }, [load]);
 
   const field = (k, v) => setFicha((f) => ({ ...f, [k]: v }));
@@ -86,12 +86,15 @@ export default function Triagem() {
     } catch (e) { err(e); } finally { setSaving(false); }
   };
 
-  const run = async (fn, msg) => {
+  const run = async (fn, msg, keepOpen) => {
     setSaving(true);
-    try { await fn(); toast.success(msg); setFicha(null); load(); loadFila(); }
+    try { const { data } = await fn(); toast.success(msg); setFicha(keepOpen ? data : null); load(); loadFila(); }
     catch (e) { err(e); } finally { setSaving(false); }
   };
-  const salvar = () => run(() => api.put(`/triagem/${ficha.id}`, ficha), statusOf(ficha) === "concluida" ? "Alteração registrada no histórico" : "Ficha salva");
+  const salvar = () => {
+    const concluida = statusOf(ficha) === "concluida";
+    run(() => api.put(`/triagem/${ficha.id}`, ficha), concluida ? "Alteração registrada no histórico" : "Ficha salva", !concluida);
+  };
   const concluir = () => run(() => api.post(`/triagem/${ficha.id}/concluir`, ficha), "Triagem concluída e encaminhada ao prontuário");
   const excluir = async () => {
     try { await api.delete(`/triagem/${toDelete.id}`); toast.success("Triagem excluída"); setToDelete(null); load(); }
@@ -124,7 +127,7 @@ export default function Triagem() {
             </div>
           )}
           <div><Label>Paciente *</Label>
-            <Select value={start.paciente_id} onValueChange={(v) => setStart((s) => ({ ...s, paciente_id: v }))}>
+            <Select value={start.paciente_id} onValueChange={(v) => setStart((s) => ({ ...s, paciente_id: v, fila_id: fila.find((f) => f.id === s.fila_id)?.paciente_id === v ? s.fila_id : "" }))}>
               <SelectTrigger data-testid="triagem-paciente-select"><SelectValue placeholder="Selecione" /></SelectTrigger>
               <SelectContent>{pacientes.map((p) => <SelectItem key={p.id} value={p.id}>{p.nome} — {p.tutor_nome}</SelectItem>)}</SelectContent>
             </Select>

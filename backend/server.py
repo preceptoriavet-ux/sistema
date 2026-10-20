@@ -730,13 +730,13 @@ async def triagem_do_prontuario(rid: str, user: dict = Depends(require("prontuar
         tri = await db.triagem.find_one({"id": pront["triagem_id"]}, {"_id": 0})
     ag = None
     if not tri and pront.get("agendamento_id"):
-        tri = await db.triagem.find_one({"agendamento_id": pront["agendamento_id"]}, {"_id": 0},
-                                        sort=[("created_at", -1)])
+        tri = await db.triagem.find_one({"agendamento_id": pront["agendamento_id"], "status": {"$ne": "em_andamento"}},
+                                        {"_id": 0}, sort=[("created_at", -1)])
         ag = await db.agendamentos.find_one({"id": pront["agendamento_id"]}, {"_id": 0})
     if not tri:
         dia = (ag or {}).get("inicio", "")[:10] or pront.get("created_at", "")[:10]
         tri = await db.triagem.find_one(
-            {"paciente_id": pront["paciente_id"], "created_at": {"$gte": dia, "$lte": dia + "T23:59:59.999999+99:99"}},
+            {"paciente_id": pront["paciente_id"], "status": {"$ne": "em_andamento"}, "created_at": {"$gte": dia, "$lte": dia + "T23:59:59.999999+99:99"}},
             {"_id": 0}, sort=[("created_at", -1)])
     return {"triagem": tri}
 
@@ -896,6 +896,9 @@ async def delete_triagem(tid: str, user: dict = Depends(require("triagem:write")
     if not existing:
         raise HTTPException(status_code=404, detail="Triagem não encontrada")
     await db.triagem.delete_one({"id": tid})
+    if existing.get("status") == "em_andamento" and existing.get("fila_id"):
+        await db.fila.update_one({"id": existing["fila_id"], "status": "em_triagem"},
+                                 {"$set": {"status": "aguardando_triagem", "updated_at": now_iso()}})
     await audit(user, "excluiu triagem", "triagem", tid, existing.get("paciente_nome", ""))
     return {"ok": True}
 

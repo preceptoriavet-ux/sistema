@@ -1,0 +1,37 @@
+{
+  "summary": "Tested the Triagem lifecycle end to end (start -> save ficha -> conclude -> alter -> delete) on the backend (pytest, 10 tests) and in the UI (Playwright, admin login). Also checked the Prontuário triagem panel and the Agenda iniciar / Prontuário concluir regression flows. All requested features work. Found 1 minor backend edge-case bug and a few UX/code-review points.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/triagem/{id}", "issue": "Deleting an in-progress (em_andamento) triagem that has a fila_id leaves the fila entry stuck in status 'em_triagem'. It should go back to 'aguardando_triagem'. Reproduced in test_delete_em_andamento_fila_status."},
+      {"endpoint": "GET /api/prontuarios/{id}/triagem", "issue": "The fallback (by agendamento_id, or by patient + same day) does not filter by status, so the prontuário panel can show another triagem that is still 'em_andamento' or unrelated, e.g. after the linked one is deleted. Consider filtering to status concluida (or missing status)."},
+      {"endpoint": "PUT /api/triagem/{id} (concluída)", "issue": "Alterations are not propagated to the prontuário rascunho created at conclusion (its temperatura/peso/queixa copy stays stale). The panel reads the live triagem, so this is only cosmetic. Product decision."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Iniciar Triagem dialog", "issue": "After you pick a fila entry, the Paciente select can still be changed to a different patient while fila_id stays the same, so the triagem gets linked to the wrong fila. The fila list also shows entries that are already em_triagem or aguardando_consulta. Consider filtering to aguardando_triagem / aguardando_recepcao.", "affected_selectors": ["triagem-fila-select", "triagem-paciente-select"]}
+    ],
+    "design_issues": [
+      {"screen": "Ficha de Triagem", "issues": ["'Salvar Ficha' closes the dialog. For partial saves, users may expect it to stay open (minor UX)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_triagem.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "In delete_triagem: if the triagem is em_andamento and has a fila_id whose fila status is 'em_triagem', revert the fila to 'aguardando_triagem'",
+    "Optional: restrict the triagem_do_prontuario fallback to concluded triagens",
+    "Optional: in the Iniciar Triagem dialog, clear fila_id when the patient is changed manually, and filter the fila options by status"
+  ],
+  "critical_code_review_comments": [
+    "Endpoints accept raw dict bodies with no Pydantic validation (consistent with the rest of server.py)",
+    "server.py is 1285 lines and should be split into routers",
+    "Dashboard emergencias now also includes em_andamento triagens with prioridade emergencia (probably desired)"
+  ],
+  "updated_files": ["/app/backend/tests/test_triagem.py"],
+  "success_rate": {"backend": "90% (9/10; the 1 failure is the minor fila edge case)", "frontend": "100%"},
+  "seed_data_creation": "Created TEST_Tutor Triagem / TEST_Pet Triagem (deleted on teardown; their prontuários/agendamento may remain). Rex now has an extra prontuário rascunho 'UI_TEST apatia' (origem triagem); the UI-created triagem was deleted.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run with: export REACT_APP_BACKEND_URL from frontend/.env; pytest /app/backend/tests/test_triagem.py. The legacy test edits Mongo directly via MONGO_URL. UI selectors verified: iniciar-triagem-button, triagem-paciente-select, confirmar-iniciar-triagem-button, triagem-ficha, ficha-triagem-status, triagem-*-input, triagem-prioridade-select, salvar/concluir-triagem-button, alterar/excluir-triagem-<id>, triagem-status-<id>, triagem-alteracao-aviso, cancelar/confirmar-excluir-triagem, prontuario-triagem-panel."
+}

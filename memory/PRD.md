@@ -70,3 +70,16 @@ Triagem (encaminhamento automático ao prontuário + sinais de alerta), geraçã
 - GET /api/prontuarios/{id}/triagem: triagem vinculada (triagem_id/agendamento_id) ou a mais recente do paciente no dia. Painel "Dados da Triagem" no prontuário (components/TriagemPanel.jsx).
 - POST /api/prontuarios/{id}/concluir: salva/finaliza prontuário e marca agendamento "concluido". Botão "Concluir Atendimento".
 - Triagem passa a vincular agendamento do dia (agendamento_id) e não duplica prontuário quando já existe o do agendamento.
+
+## 2026-10 — Triagem: Iniciar / Concluir / Alterar / Excluir (DONE)
+- POST /api/triagem → status "em_andamento" (fila → em_triagem), sem criar prontuário.
+- PUT /api/triagem/{id} → salva ficha; se concluída, registra em `alteracoes` (at, por, campos, anterior) + auditoria.
+- POST /api/triagem/{id}/concluir → status "concluida", cria/vincula prontuário rascunho, fila → aguardando_consulta.
+- DELETE /api/triagem/{id} → exclui só a triagem (prontuário mantido); se em andamento, fila volta a aguardando_triagem.
+- Painel de triagem do prontuário ignora triagens em andamento no fallback.
+- UI: Triagem.jsx (Iniciar Triagem, Ficha, Salvar Ficha, Concluir Triagem, Continuar/Alterar, Excluir c/ confirmação) + components/TriagemFicha.jsx.
+- Testado: iteration_1.json (backend 10/10 após correção, frontend 100%).
+
+## Backlog
+- P1: Estoque e Farmácia; Internação e Emergência; Atendimento Domiciliar; Procedimentos
+- P2: Comunicação com tutores; Requisitos de Clínica-Escola
