@@ -21,7 +21,8 @@ from pydantic import BaseModel, Field, EmailStr
 
 from storage import put_object, get_object, build_path, init_storage, MIME_TYPES
 from pdfgen import build_documento_pdf, build_historico_pdf, TIPO_TITULO
-from historico import build_eventos, serie_peso, prontuario_vazio
+from historico import build_eventos, serie_peso, prontuario_vazio, TZ_BR
+from modelos import aplicar_variaveis, ESPECIE_LABEL
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -1280,17 +1281,35 @@ async def create_documento(body: dict, user: dict = Depends(require("prontuario:
     if paciente.get("ativo") is False:
         raise HTTPException(status_code=400, detail="Paciente inativo — reative o cadastro para novos registros")
     tipo = body.get("tipo", "")
-    if tipo not in TIPO_TITULO:
+    modelo = None
+    if tipo == "modelo":
+        modelo = await db.modelos_documento.find_one({"id": body.get("modelo_id")}, {"_id": 0})
+        if not modelo:
+            raise HTTPException(status_code=400, detail="Modelo de documento não encontrado")
+    elif tipo not in TIPO_TITULO:
         raise HTTPException(status_code=400, detail="Tipo de documento inválido")
+    titulo = (body.get("titulo") or "").strip() or (modelo or {}).get("titulo") or TIPO_TITULO.get(tipo, "Documento")
     tutor = await db.tutores.find_one({"id": paciente["tutor_id"]}, {"_id": 0})
     clinic = await db.config.find_one({"id": "clinica"}, {"_id": 0}) or DEFAULT_CLINIC
-    agora = datetime.now(timezone.utc)
-    pinfo = " / ".join([x for x in [paciente.get("especie", ""), paciente.get("raca", "")] if x]) or "—"
+    agora = datetime.now(TZ_BR)
+    pinfo = " / ".join([x for x in [ESPECIE_LABEL.get(paciente.get("especie", ""), paciente.get("especie", "")),
+                                    paciente.get("raca", "")] if x]) or "—"
+    valores = {
+        "paciente": paciente["nome"], "codigo": paciente.get("codigo", ""),
+        "especie": ESPECIE_LABEL.get(paciente.get("especie", ""), paciente.get("especie", "")),
+        "raca": paciente.get("raca", "") or "SRD", "tutor": (tutor or {}).get("nome", ""),
+        "data": agora.strftime("%d/%m/%Y"),
+        "veterinario": " — ".join([x for x in [user.get("name", ""), user.get("conselho", "")] if x]),
+    }
+    corpo = aplicar_variaveis(body.get("corpo", ""), valores)
+    medicamentos = aplicar_variaveis(body.get("medicamentos", ""), valores)
+    if not corpo.strip() and not medicamentos.strip():
+        raise HTTPException(status_code=400, detail="Preencha o conteúdo do documento")
     render = {
-        "tipo": tipo, "paciente_nome": f"{paciente['nome']} (Nº {paciente.get('codigo', '—')})",
+        "tipo": tipo, "titulo": titulo, "paciente_nome": f"{paciente['nome']} (Nº {paciente.get('codigo', '—')})",
         "tutor_nome": f"{tutor.get('nome', '')} (Nº {tutor.get('codigo', '—')})" if tutor else "",
         "paciente_info": pinfo, "data_fmt": agora.strftime("%d/%m/%Y %H:%M"),
-        "corpo": body.get("corpo", ""), "medicamentos": body.get("medicamentos", ""),
+        "corpo": corpo, "medicamentos": medicamentos,
         "profissional_nome": user.get("name", ""), "conselho": user.get("conselho", ""),
     }
     logo_bytes = None
@@ -1305,9 +1324,9 @@ async def create_documento(body: dict, user: dict = Depends(require("prontuario:
     doc = {
         "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"], "paciente_codigo": paciente.get("codigo"),
         "tutor_id": paciente["tutor_id"], "tutor_nome": tutor.get("nome", "") if tutor else "",
-        "tipo": tipo, "titulo": TIPO_TITULO[tipo], "corpo": body.get("corpo", ""),
-        "medicamentos": body.get("medicamentos", ""), "prontuario_id": body.get("prontuario_id", ""),
-        "pdf_path": result["path"], "pdf_nome": f"{tipo}_{paciente['nome']}.pdf",
+        "tipo": tipo, "titulo": titulo, "modelo_id": (modelo or {}).get("id", ""), "corpo": corpo,
+        "medicamentos": medicamentos, "prontuario_id": body.get("prontuario_id", ""),
+        "pdf_path": result["path"], "pdf_nome": f"{titulo}_{paciente['nome']}.pdf".replace(" ", "_"),
         "profissional_nome": user.get("name", ""), "profissional_id": str(user["_id"]),
         "created_at": now_iso(),
     }
@@ -1317,9 +1336,52 @@ async def create_documento(body: dict, user: dict = Depends(require("prontuario:
         "is_deleted": False, "created_at": now_iso(), "uploaded_by": str(user["_id"]),
     })
     await db.documentos.insert_one(doc)
-    await audit(user, "emitiu documento", "documento", doc["id"], f"{TIPO_TITULO[tipo]} - {paciente['nome']}")
+    await audit(user, "emitiu documento", "documento", doc["id"], f"{titulo} - {paciente['nome']}")
     doc.pop("_id", None)
     return doc
+
+
+# ---------------- Modelos de documento ----------------
+def _modelo_body(body: dict) -> dict:
+    titulo = (body.get("titulo") or "").strip()
+    conteudo = (body.get("conteudo") or "").strip()
+    if not titulo or not conteudo:
+        raise HTTPException(status_code=400, detail="Informe o título e o conteúdo do modelo")
+    return {"titulo": titulo[:150], "conteudo": conteudo}
+
+
+@api_router.get("/modelos-documento")
+async def list_modelos(user: dict = Depends(require("prontuario:read"))):
+    return await db.modelos_documento.find({}, {"_id": 0}).sort("titulo", 1).to_list(1000)
+
+
+@api_router.post("/modelos-documento")
+async def create_modelo(body: dict, user: dict = Depends(require("prontuario:write"))):
+    doc = {"id": str(uuid.uuid4()), **_modelo_body(body), "created_by": user.get("name", ""),
+           "created_at": now_iso(), "updated_at": now_iso()}
+    await db.modelos_documento.insert_one(doc)
+    doc.pop("_id", None)
+    await audit(user, "criou modelo de documento", "modelo_documento", doc["id"], doc["titulo"])
+    return doc
+
+
+@api_router.put("/modelos-documento/{mid}")
+async def update_modelo(mid: str, body: dict, user: dict = Depends(require("prontuario:write"))):
+    res = await db.modelos_documento.update_one({"id": mid}, {"$set": {**_modelo_body(body), "updated_at": now_iso(),
+                                                                      "updated_by": user.get("name", "")}})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="Modelo não encontrado")
+    await audit(user, "editou modelo de documento", "modelo_documento", mid, body.get("titulo", ""))
+    return await db.modelos_documento.find_one({"id": mid}, {"_id": 0})
+
+
+@api_router.delete("/modelos-documento/{mid}")
+async def delete_modelo(mid: str, user: dict = Depends(require("prontuario:write"))):
+    m = await db.modelos_documento.find_one_and_delete({"id": mid}, {"_id": 0})
+    if not m:
+        raise HTTPException(status_code=404, detail="Modelo não encontrado")
+    await audit(user, "excluiu modelo de documento", "modelo_documento", mid, m.get("titulo", ""))
+    return {"ok": True}
 
 
 # ---------------- Relatórios ----------------

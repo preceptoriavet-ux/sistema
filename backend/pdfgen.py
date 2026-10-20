@@ -131,7 +131,7 @@ def build_historico_pdf(paciente: dict, tutor: dict, eventos: list, clinic: dict
 def build_documento_pdf(doc: dict, clinic: dict, logo_bytes: bytes = None) -> bytes:
     buf = BytesIO()
     pdf = SimpleDocTemplate(buf, pagesize=A4, topMargin=16 * mm, bottomMargin=16 * mm,
-                            leftMargin=20 * mm, rightMargin=20 * mm, title=TIPO_TITULO.get(doc["tipo"], "Documento"))
+                            leftMargin=20 * mm, rightMargin=20 * mm, title=(doc.get("titulo") or TIPO_TITULO.get(doc["tipo"], "Documento")))
     ss = getSampleStyleSheet()
     clinic_name = ParagraphStyle("cn", parent=ss["Title"], fontSize=17, textColor=PRIMARY, spaceAfter=2, alignment=TA_CENTER)
     clinic_sub = ParagraphStyle("cs", parent=ss["Normal"], fontSize=9, textColor=MUTED, alignment=TA_CENTER, spaceAfter=1)
@@ -163,7 +163,7 @@ def build_documento_pdf(doc: dict, clinic: dict, logo_bytes: bytes = None) -> by
         el.append(Paragraph(f"CNPJ: {clinic['cnpj']}", clinic_sub))
     el.append(Spacer(1, 6))
     el.append(HRFlowable(width="100%", thickness=1.2, color=PRIMARY))
-    el.append(Paragraph(TIPO_TITULO.get(doc["tipo"], "Documento"), title))
+    el.append(Paragraph((doc.get("titulo") or TIPO_TITULO.get(doc["tipo"], "Documento")), title))
 
     info = [
         [Paragraph("PACIENTE", label), Paragraph(doc.get("paciente_nome", "—"), val),

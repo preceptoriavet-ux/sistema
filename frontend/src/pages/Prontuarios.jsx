@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api, formatApiError, fileUrl } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { especieLabel, TIPOS_DOCUMENTO } from "@/lib/constants";
+import { especieLabel } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +15,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Plus, Stethoscope, CheckCircle2, ShieldCheck, Clock, FileText, PlayCircle } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { TriagemPanel } from "@/components/TriagemPanel";
+import { EmitirDocumentoCampos, DOC_VAZIO } from "@/components/documentos/EmitirDocumentoCampos";
 
 const ST = { rascunho: { l: "Rascunho", c: "bg-slate-100 text-slate-700 border-slate-300" }, aguardando_revisao: { l: "Aguardando Revisão", c: "bg-amber-100 text-amber-800 border-amber-300" }, finalizado: { l: "Finalizado", c: "bg-emerald-100 text-emerald-800 border-emerald-300" }, validado: { l: "Validado", c: "bg-primary/10 text-primary border-primary/30" } };
 const EMPTY = { paciente_id: "", motivo: "", queixa_principal: "", anamnese: "", exame_fisico: "", temperatura: "", fc: "", fr: "", peso: "", lista_problemas: "", hipoteses: "", diagnostico: "", plano_terapeutico: "", exames_solicitados: "", prescricoes: "", orientacoes: "", retorno: "" };
@@ -30,7 +31,8 @@ export default function Prontuarios() {
   const [exames, setExames] = useState([]);
   const [saving, setSaving] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
-  const [docForm, setDocForm] = useState({ tipo: "receita", medicamentos: "", corpo: "" });
+  const [docForm, setDocForm] = useState({ ...DOC_VAZIO });
+  const [modelos, setModelos] = useState([]);
   const [docSaving, setDocSaving] = useState(false);
 
   const load = useCallback(async () => { const { data } = await api.get("/prontuarios"); setRows(data); }, []);
@@ -81,15 +83,13 @@ export default function Prontuarios() {
 
   const validar = async () => { try { await api.post(`/prontuarios/${editId}/validar`); toast.success("Prontuário validado"); setOpen(false); load(); } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); } };
 
-  const dfield = (k, v) => setDocForm((f) => ({ ...f, [k]: v }));
-  const openDoc = () => { setDocForm({ tipo: "receita", medicamentos: "", corpo: "" }); setDocOpen(true); };
-  const docTipoCfg = TIPOS_DOCUMENTO.find((t) => t.value === docForm.tipo);
+  const openDoc = () => { setDocForm({ ...DOC_VAZIO }); setDocOpen(true); api.get("/modelos-documento").then((r) => setModelos(r.data)).catch(() => {}); };
   const emitDoc = async () => {
     if (!docForm.corpo.trim() && !docForm.medicamentos.trim()) return toast.error("Preencha o conteúdo do documento");
     setDocSaving(true);
     try {
       const { data } = await api.post("/documentos", { ...docForm, paciente_id: form.paciente_id, prontuario_id: editId });
-      toast.success("Documento emitido e vinculado ao prontuário");
+      toast.success("Documento emitido — vinculado ao prontuário e à linha do tempo");
       setDocOpen(false);
       window.open(fileUrl(data.pdf_path), "_blank");
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
@@ -210,21 +210,7 @@ export default function Prontuarios() {
         <DialogContent className="max-w-xl max-h-[92vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Emitir Documento — {form.paciente_nome}</DialogTitle></DialogHeader>
           <div className="grid gap-3">
-            <div><Label>Tipo de documento</Label>
-              <Select value={docForm.tipo} onValueChange={(v) => dfield("tipo", v)}>
-                <SelectTrigger data-testid="prontuario-doc-tipo-select"><SelectValue /></SelectTrigger>
-                <SelectContent>{TIPOS_DOCUMENTO.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            {docTipoCfg?.medicamentos && (
-              <div><Label>Medicamentos / Prescrição</Label>
-                <Textarea rows={5} value={docForm.medicamentos} onChange={(e) => dfield("medicamentos", e.target.value)} data-testid="prontuario-doc-medicamentos-input"
-                  placeholder={"1) Amoxicilina 250mg — 1 comp. VO a cada 12h por 7 dias"} />
-              </div>
-            )}
-            <div><Label>{docTipoCfg?.medicamentos ? "Orientações" : "Conteúdo"}</Label>
-              <Textarea rows={6} value={docForm.corpo} onChange={(e) => dfield("corpo", e.target.value)} data-testid="prontuario-doc-corpo-input" placeholder="Digite o texto do documento…" />
-            </div>
+            <EmitirDocumentoCampos form={docForm} setForm={setDocForm} modelos={modelos} prefix="prontuario-doc" />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDocOpen(false)}>Cancelar</Button>
