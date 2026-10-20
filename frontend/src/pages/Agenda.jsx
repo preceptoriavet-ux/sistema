@@ -11,13 +11,15 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Plus, Clock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Clock, PlayCircle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const toDate = (d) => d.toISOString().slice(0, 10);
 const STATUS_COLOR = { agendado: "border-l-slate-400", confirmado: "border-l-sky-500", em_atendimento: "border-l-blue-600", concluido: "border-l-emerald-600", falta: "border-l-rose-500", cancelado: "border-l-gray-300" };
 
 export default function Agenda() {
   const { can } = useAuth();
+  const navigate = useNavigate();
   const [day, setDay] = useState(new Date());
   const [rows, setRows] = useState([]);
   const [pacientes, setPacientes] = useState([]);
@@ -60,6 +62,15 @@ export default function Agenda() {
     finally { setSaving(false); }
   };
 
+  const iniciar = async (e, a) => {
+    e.stopPropagation();
+    try {
+      const { data } = await api.post(`/agendamentos/${a.id}/iniciar`);
+      toast.success("Atendimento iniciado");
+      navigate(`/prontuarios?abrir=${data.id}`);
+    } catch (err) { toast.error(formatApiError(err.response?.data?.detail)); }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -86,6 +97,9 @@ export default function Agenda() {
               <p className="truncate text-xs text-muted-foreground">{a.tipo} · {a.profissional_nome || "Sem profissional"} {a.sala && `· ${a.sala}`}</p>
             </div>
             <Badge variant="outline">{AG_STATUS.find((s) => s.value === a.status)?.label || a.status}</Badge>
+            {can("prontuario:write") && !["concluido", "cancelado", "falta"].includes(a.status) && (
+              <Button size="sm" onClick={(e) => iniciar(e, a)} data-testid={`iniciar-atendimento-${a.id}`}><PlayCircle className="h-4 w-4 mr-1.5" />Iniciar Atendimento</Button>
+            )}
           </div>
         ))}
       </Card>

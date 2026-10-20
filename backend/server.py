@@ -531,9 +531,47 @@ async def create_agendamento(body: dict, user: dict = Depends(require("agenda:wr
         "created_at": now_iso(), "created_by": user.get("name", ""),
     }
     await db.agendamentos.insert_one(doc)
-    await audit(user, "agendou", "agendamento", doc["id"], f"{paciente['nome']} - {inicio}")
     doc.pop("_id", None)
+    await novo_prontuario_agendamento(doc, "agendamento")
+    await audit(user, "agendou", "agendamento", doc["id"], f"{paciente['nome']} - {inicio}")
     return doc
+
+
+PRONT_FIELDS = ["motivo", "queixa_principal", "anamnese", "exame_fisico", "temperatura", "fc", "fr",
+                "peso", "lista_problemas", "hipoteses", "diagnostico", "exames_solicitados",
+                "plano_terapeutico", "prescricoes", "orientacoes", "retorno"]
+
+
+async def novo_prontuario_agendamento(ag: dict, origem: str) -> dict:
+    pront = {
+        "id": str(uuid.uuid4()), "paciente_id": ag["paciente_id"], "paciente_nome": ag["paciente_nome"],
+        "tutor_id": ag["tutor_id"], "origem": origem, "agendamento_id": ag["id"],
+        **{k: "" for k in PRONT_FIELDS}, "motivo": ag.get("motivo") or ag.get("tipo", "consulta"),
+        "profissional_id": ag.get("profissional_id", ""), "profissional_nome": ag.get("profissional_nome", ""),
+        "status": "rascunho", "revisado_por": "", "correcoes": [], "created_at": now_iso(),
+    }
+    await db.prontuarios.insert_one(pront)
+    pront.pop("_id", None)
+    return pront
+
+
+@api_router.post("/agendamentos/{aid}/iniciar")
+async def iniciar_atendimento(aid: str, user: dict = Depends(require("prontuario:write"))):
+    ag = await db.agendamentos.find_one({"id": aid}, {"_id": 0})
+    if not ag:
+        raise HTTPException(status_code=404, detail="Agendamento não encontrado")
+    if ag.get("status") in ("concluido", "cancelado", "falta"):
+        raise HTTPException(status_code=400, detail="Agendamento já encerrado")
+    # Reaproveita o prontuário em branco criado no agendamento; senão cria um novo
+    pront = await db.prontuarios.find_one(
+        {"agendamento_id": aid, "status": "rascunho", "iniciado_at": {"$exists": False}}, {"_id": 0})
+    if not pront:
+        pront = await novo_prontuario_agendamento(ag, "agenda")
+    upd = {"iniciado_at": now_iso(), "profissional_id": str(user["_id"]), "profissional_nome": user.get("name", "")}
+    await db.prontuarios.update_one({"id": pront["id"]}, {"$set": upd})
+    await db.agendamentos.update_one({"id": aid}, {"$set": {"status": "em_atendimento", "updated_at": now_iso()}})
+    await audit(user, "iniciou atendimento", "agendamento", aid, ag["paciente_nome"])
+    return await db.prontuarios.find_one({"id": pront["id"]}, {"_id": 0})
 
 
 @api_router.put("/agendamentos/{aid}")
@@ -623,7 +661,7 @@ async def create_prontuario(body: dict, user: dict = Depends(require("prontuario
     is_estagiario = user.get("role") == "estagiario"
     doc = {
         "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
-        "tutor_id": paciente["tutor_id"],
+        "tutor_id": paciente["tutor_id"], "agendamento_id": body.get("agendamento_id", ""),
         "motivo": body.get("motivo", ""), "queixa_principal": body.get("queixa_principal", ""),
         "anamnese": body.get("anamnese", ""), "exame_fisico": body.get("exame_fisico", ""),
         "temperatura": body.get("temperatura", ""), "fc": body.get("fc", ""), "fr": body.get("fr", ""),
@@ -679,6 +717,44 @@ async def validar_prontuario(rid: str, user: dict = Depends(require("prontuario:
     await db.prontuarios.update_one({"id": rid}, {"$set": {
         "status": "validado", "revisado_por": user.get("name", ""), "validado_at": now_iso()}})
     await audit(user, "validou prontuário", "prontuario", rid, existing.get("paciente_nome", ""))
+    return await db.prontuarios.find_one({"id": rid}, {"_id": 0})
+
+
+@api_router.get("/prontuarios/{rid}/triagem")
+async def triagem_do_prontuario(rid: str, user: dict = Depends(require("prontuario:read"))):
+    pront = await db.prontuarios.find_one({"id": rid}, {"_id": 0})
+    if not pront:
+        raise HTTPException(status_code=404, detail="Prontuário não encontrado")
+    tri = None
+    if pront.get("triagem_id"):
+        tri = await db.triagem.find_one({"id": pront["triagem_id"]}, {"_id": 0})
+    ag = None
+    if not tri and pront.get("agendamento_id"):
+        tri = await db.triagem.find_one({"agendamento_id": pront["agendamento_id"]}, {"_id": 0},
+                                        sort=[("created_at", -1)])
+        ag = await db.agendamentos.find_one({"id": pront["agendamento_id"]}, {"_id": 0})
+    if not tri:
+        dia = (ag or {}).get("inicio", "")[:10] or pront.get("created_at", "")[:10]
+        tri = await db.triagem.find_one(
+            {"paciente_id": pront["paciente_id"], "created_at": {"$gte": dia, "$lte": dia + "T23:59:59.999999+99:99"}},
+            {"_id": 0}, sort=[("created_at", -1)])
+    return {"triagem": tri}
+
+
+@api_router.post("/prontuarios/{rid}/concluir")
+async def concluir_atendimento(rid: str, body: dict, user: dict = Depends(require("prontuario:write"))):
+    existing = await db.prontuarios.find_one({"id": rid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Prontuário não encontrado")
+    updates = {k: body[k] for k in PRONT_FIELDS if k in body}
+    if existing.get("status") == "rascunho":
+        updates["status"] = "aguardando_revisao" if user.get("role") == "estagiario" else "finalizado"
+    updates["concluido_at"] = now_iso()
+    await db.prontuarios.update_one({"id": rid}, {"$set": updates})
+    if existing.get("agendamento_id"):
+        await db.agendamentos.update_one({"id": existing["agendamento_id"]},
+                                         {"$set": {"status": "concluido", "updated_at": now_iso()}})
+    await audit(user, "concluiu atendimento", "prontuario", rid, existing.get("paciente_nome", ""))
     return await db.prontuarios.find_one({"id": rid}, {"_id": 0})
 
 
@@ -750,11 +826,20 @@ async def create_triagem(body: dict, user: dict = Depends(require("triagem:write
         "responsavel": user.get("name", ""), "profissional_id": str(user["_id"]),
         "created_at": now_iso(),
     }
+    # Vincula ao agendamento do dia (se houver); o prontuário do agendamento exibirá a triagem
+    hoje = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    ag = await db.agendamentos.find_one(
+        {"paciente_id": paciente["id"], "inicio": {"$gte": hoje, "$lte": hoje + "T23:59:59"},
+         "status": {"$nin": ["concluido", "cancelado", "falta"]}}, {"_id": 0})
+    doc["agendamento_id"] = body.get("agendamento_id") or (ag["id"] if ag else "")
     await db.triagem.insert_one(doc)
-    # Encaminha ao prontuário: cria registro inicial vinculado
-    await db.prontuarios.insert_one({
+    pront_ag = doc["agendamento_id"] and await db.prontuarios.find_one(
+        {"agendamento_id": doc["agendamento_id"], "status": "rascunho"})
+    # Encaminha ao prontuário: cria registro inicial vinculado (se não houver um do agendamento)
+    if not pront_ag:
+      await db.prontuarios.insert_one({
         "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
-        "tutor_id": paciente["tutor_id"], "origem": "triagem", "triagem_id": doc["id"],
+        "tutor_id": paciente["tutor_id"], "origem": "triagem", "triagem_id": doc["id"], "agendamento_id": doc["agendamento_id"],
         "motivo": "Atendimento após triagem", "queixa_principal": doc["queixa_principal"],
         "anamnese": doc["historico"], "exame_fisico": "", "temperatura": doc["temperatura"],
         "fc": doc["fc"], "fr": doc["fr"], "peso": doc["peso"], "lista_problemas": "", "hipoteses": "",

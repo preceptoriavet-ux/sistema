@@ -13,6 +13,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Plus, Stethoscope, CheckCircle2, ShieldCheck, Clock, FileText } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { TriagemPanel } from "@/components/TriagemPanel";
 
 const ST = { rascunho: { l: "Rascunho", c: "bg-slate-100 text-slate-700 border-slate-300" }, aguardando_revisao: { l: "Aguardando Revisão", c: "bg-amber-100 text-amber-800 border-amber-300" }, finalizado: { l: "Finalizado", c: "bg-emerald-100 text-emerald-800 border-emerald-300" }, validado: { l: "Validado", c: "bg-primary/10 text-primary border-primary/30" } };
 const EMPTY = { paciente_id: "", motivo: "", queixa_principal: "", anamnese: "", exame_fisico: "", temperatura: "", fc: "", fr: "", peso: "", lista_problemas: "", hipoteses: "", diagnostico: "", plano_terapeutico: "", exames_solicitados: "", prescricoes: "", orientacoes: "", retorno: "" };
@@ -33,6 +35,12 @@ export default function Prontuarios() {
 
   const load = useCallback(async () => { const { data } = await api.get("/prontuarios"); setRows(data); }, []);
   useEffect(() => { load(); api.get("/pacientes").then((r) => setPacientes(r.data)); }, [load]);
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const abrir = params.get("abrir");
+    const r = abrir && rows.find((x) => x.id === abrir);
+    if (r) { openView(r); setParams({}, { replace: true }); }
+  }, [rows, params]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const field = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const openNew = () => { setForm(EMPTY); setEditId(null); setEditStatus(""); setExames([]); setOpen(true); };
@@ -48,6 +56,15 @@ export default function Prontuarios() {
       if (editId) await api.put(`/prontuarios/${editId}`, { ...form, finalizar, motivo_correcao: "Correção de registro" });
       else await api.post("/prontuarios", { ...form, finalizar });
       toast.success(finalizar ? "Prontuário finalizado" : "Prontuário salvo"); setOpen(false); load();
+    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
+    finally { setSaving(false); }
+  };
+
+  const concluir = async () => {
+    setSaving(true);
+    try {
+      await api.post(`/prontuarios/${editId}/concluir`, form);
+      toast.success("Atendimento concluído — agendamento atualizado"); setOpen(false); load();
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
     finally { setSaving(false); }
   };
@@ -107,6 +124,7 @@ export default function Prontuarios() {
               </Select>
             </div>
           )}
+          {editId && <TriagemPanel prontuarioId={editId} />}
           <Tabs defaultValue="anamnese">
             <TabsList className="grid grid-cols-3 w-full">
               <TabsTrigger value="anamnese" data-testid="tab-anamnese">Anamnese</TabsTrigger>
@@ -161,6 +179,9 @@ export default function Prontuarios() {
           <DialogFooter className="flex-wrap gap-2">
             <Button variant="outline" onClick={() => setOpen(false)}>Fechar</Button>
             {editId && can("prontuario:write") && <Button variant="outline" onClick={openDoc} data-testid="prontuario-emitir-doc-button"><FileText className="h-4 w-4 mr-1.5" />Emitir Documento</Button>}
+            {editId && form.agendamento_id && editStatus === "rascunho" && can("prontuario:write") && (
+              <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={concluir} disabled={saving} data-testid="concluir-atendimento-button"><CheckCircle2 className="h-4 w-4 mr-1.5" />Concluir Atendimento</Button>
+            )}
             {canValidate && <Button onClick={validar} data-testid="validar-prontuario-button"><ShieldCheck className="h-4 w-4 mr-1.5" />Validar</Button>}
             {can("prontuario:write") && (locked ? (
               <Button onClick={() => save(false)} disabled={saving} data-testid="corrigir-prontuario-button">Salvar Correção</Button>

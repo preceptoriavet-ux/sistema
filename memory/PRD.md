@@ -63,3 +63,10 @@ Validado por testing agent (backend 100% após fix de conflito de agenda; fronte
 
 ## Próximas tarefas
 Triagem (encaminhamento automático ao prontuário + sinais de alerta), geração de documentos em PDF, módulo de exames com upload de laudos.
+
+## 2026-10 — Fluxo Agenda ↔ Triagem ↔ Prontuário (DONE)
+- Todo agendamento novo cria automaticamente um prontuário (rascunho) vinculado (agendamento_id), sem alterar prontuários anteriores.
+- POST /api/agendamentos/{id}/iniciar: abre o prontuário do agendamento (ou cria novo se já usado) e marca agendamento "em_atendimento". Botão "Iniciar Atendimento" na Agenda.
+- GET /api/prontuarios/{id}/triagem: triagem vinculada (triagem_id/agendamento_id) ou a mais recente do paciente no dia. Painel "Dados da Triagem" no prontuário (components/TriagemPanel.jsx).
+- POST /api/prontuarios/{id}/concluir: salva/finaliza prontuário e marca agendamento "concluido". Botão "Concluir Atendimento".
+- Triagem passa a vincular agendamento do dia (agendamento_id) e não duplica prontuário quando já existe o do agendamento.
