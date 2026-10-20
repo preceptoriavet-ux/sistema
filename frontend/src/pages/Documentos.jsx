@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { api, formatApiError, fileUrl } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { especieLabel } from "@/lib/constants";
+import { especieLabel, TIPOS_DOCUMENTO } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -59,7 +59,7 @@ export default function Documentos() {
                 <p className="truncate font-medium text-sm">{d.titulo} <span className="font-normal text-muted-foreground">· {d.paciente_nome}{d.paciente_codigo != null && ` (Nº ${d.paciente_codigo})`}</span></p>
                 <p className="truncate text-xs text-muted-foreground">{new Date(d.created_at).toLocaleString("pt-BR")} · {d.profissional_nome}{d.prontuario_id ? " · via prontuário" : " · avulso"}</p>
               </div>
-              <Badge variant="outline">{d.tipo === "modelo" ? "modelo" : d.tipo}</Badge>
+              <Badge variant="outline">{d.tipo === "modelo" ? "Modelo" : TIPOS_DOCUMENTO.find((t) => t.value === d.tipo)?.label || d.tipo}</Badge>
               <a href={fileUrl(d.pdf_path)} target="_blank" rel="noreferrer" data-testid={`documento-pdf-${d.id}`}>
                 <Button variant="outline" size="sm"><Printer className="h-4 w-4 mr-1.5" />Abrir PDF</Button>
               </a>

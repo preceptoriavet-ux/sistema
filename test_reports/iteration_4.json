@@ -1,0 +1,36 @@
+{
+  "summary": "Tested document templates (modelos de documento) end to end. Backend: 14/14 tests pass for the requested features. These cover CRUD, 400 validations, 404 on PUT/DELETE, RBAC (recepcionista can GET but gets 403 on POST/PUT/DELETE; financeiro gets 403 on GET too), tipo=modelo emission (blank title falls back to the template title, custom title is kept, variables are replaced with and without accents and in any case, unknown variables stay as text, PDF text checked with pymupdf), invalid modelo_id/empty body/invalid tipo return 400, standard types support variables, and avulso and prontuário documents appear in the timeline with titulo and pdf_path. One new bug: document text is not XML-escaped before it reaches reportlab, which gives a 500 for normal clinical text such as 'Temp <38 graus e <peso'. Frontend: every requested flow passed (Modelos tab create/edit/delete, variable chips insert at the cursor, empty-field toast, Emitir Documento with the 'Tipos padrão' and 'Modelos da clínica' groups prefilling editable title and body, '· avulso' and '· via prontuário' labels, prontuário emission, timeline item with title, Abrir prontuário and Ver PDF, receita regression).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/documentos (pdfgen.build_documento_pdf)", "issue": "titulo, corpo and medicamentos go into reportlab Paragraph without XML escaping. Text such as 'Temp <38 graus e <peso', 'a <br> b' or the title 'Termo <B>' returns 500 (ValueError paraparser). Text like '<b>x</b>' is rendered as markup and '<x>' disappears silently. Users can type free text into templates, so this will happen with clinical wording.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/modelos-documento", "issue": "The sort by titulo is case-sensitive and accent-sensitive (Mongo default collation), so 'TEST_UI…' appears before 'Termo…'. Use a pt collation or sort in Python with a normalised key."},
+      {"endpoint": "tests/test_paciente_exclusao_peso.py::test_audit_inativou", "issue": "Fails in a full-suite run. The audit list is probably limited or paginated, so 'inativou' falls out of the window when other tests write audits. This is a test flakiness problem, not part of this feature."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Documentos > Emitidos", "issues": ["The tipo badge shows the raw value ('modelo', 'orientacao', 'receita') instead of a label such as 'Modelo' or 'Orientações'."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_modelos_documento.py", "/app/test_reports/pytest/pytest_modelos.xml"],
+  "action_items": [
+    "In pdfgen.py, escape user text before it goes into Paragraph: use xml.sax.saxutils.escape(text) and then replace '\\n' with '<br/>' in _br(). Apply this to titulo, corpo, medicamentos, paciente and tutor names, and the timeline PDF (build_historico_pdf) as well. After the fix, tests/test_modelos_documento.py::test_markup_like_text_not_500 (3 cases) should pass.",
+    "Optional: show a friendly label for the tipo badge in Documentos; sort templates case- and accent-insensitively."
+  ],
+  "critical_code_review_comments": [
+    "server.py is about 1595 lines; move documentos and modelos into their own router module.",
+    "EmitirDocumentoCampos.escolher: modelos.find() may return undefined if the template list changed; guard against it before using m.id.",
+    "The modelo endpoints take a raw dict; a Pydantic model would make validation clearer. The 150-character titulo truncation happens silently.",
+    "PUT /modelos-documento writes the raw body.titulo to the audit log instead of the normalised value."
+  ],
+  "updated_files": ["/app/backend/tests/test_modelos_documento.py"],
+  "success_rate": {"backend": "82% (14/17 in the new file; the 3 failing are the markup-escaping bug); regression 38/39", "frontend": "100%"},
+  "seed_data_creation": "Created TEST_ templates, tutors and patients (TEST_Pet Modelo, TEST_UIModelo Pet, TEST_SC Pet) and deleted all of them at the end. Only the template 'Termo de Consentimento Cirúrgico' remains. Inactive TEST_ users (recepcionista/financeiro) were created for RBAC.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && export $(grep -v '^#' .env | xargs) && REACT_APP_BACKEND_URL=<url> pytest tests/test_modelos_documento.py -n 0. The variable chip testids are variavel-paciente, variavel-nºpaciente, variavel-espécie, variavel-raça, variavel-tutor, variavel-data and variavel-veterinário. Template options in the select are <prefix>-modelo-opcao-<id>. Open a prontuário by clicking the prontuario-<id> card."
+}

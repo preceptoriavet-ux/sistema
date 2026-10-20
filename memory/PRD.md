@@ -114,3 +114,10 @@ Triagem (encaminhamento automático ao prontuário + sinais de alerta), geraçã
 - Linha do tempo: série "pesos" (prontuários + triagens + cadastro via peso_atualizado_at) → PesoChart (recharts) com último peso e variação. Rascunhos vazios de agendamento não aparecem.
 - UI: PacienteAcoes (Inativar/Reativar/Excluir com bloqueio), switch "Mostrar inativos", DateInput (shadcn Calendar pt-BR) no período do histórico e data de nascimento.
 - Testes: iteration_3.json + correções; pytest 39/39; conftest.py limpa dados TEST_ ao final.
+
+## 2026-10 — Modelos de Documento (DONE)
+- Coleção `modelos_documento` {id, titulo, conteudo, created_by, created_at, updated_at}; CRUD /api/modelos-documento (GET prontuario:read; POST/PUT/DELETE prontuario:write); lista ordenada sem distinção de acento/caixa.
+- POST /api/documentos aceita tipo="modelo" + modelo_id + titulo; variáveis {paciente}, {nº paciente}, {espécie}, {raça}, {tutor}, {data}, {veterinário} (com/sem acento) substituídas em corpo/medicamentos (backend/modelos.py) para todos os tipos; datas em horário de Brasília; PDF usa o título informado.
+- pdfgen: todo texto do usuário é escapado (XML) antes do reportlab (corrige 500 com "<").
+- UI: Documentos com abas Emitidos/Modelos (ModelosTab: Criar Modelo do Zero, editar, excluir, chips de variáveis); EmitirDocumentoCampos compartilhado entre Documentos (avulso) e Prontuário, com grupo "Modelos da clínica". Documentos avulsos e via prontuário aparecem na Linha do Tempo.
+- Testes: iteration_4.json + correções; pytest 56/56.

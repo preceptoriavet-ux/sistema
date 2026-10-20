@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, EmailStr
 from storage import put_object, get_object, build_path, init_storage, MIME_TYPES
 from pdfgen import build_documento_pdf, build_historico_pdf, TIPO_TITULO
 from historico import build_eventos, serie_peso, prontuario_vazio, TZ_BR
-from modelos import aplicar_variaveis, ESPECIE_LABEL
+from modelos import aplicar_variaveis, ESPECIE_LABEL, _norm as _norm_txt
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -1352,7 +1352,8 @@ def _modelo_body(body: dict) -> dict:
 
 @api_router.get("/modelos-documento")
 async def list_modelos(user: dict = Depends(require("prontuario:read"))):
-    return await db.modelos_documento.find({}, {"_id": 0}).sort("titulo", 1).to_list(1000)
+    rows = await db.modelos_documento.find({}, {"_id": 0}).to_list(1000)
+    return sorted(rows, key=lambda m: _norm_txt(m.get("titulo", "")))
 
 
 @api_router.post("/modelos-documento")

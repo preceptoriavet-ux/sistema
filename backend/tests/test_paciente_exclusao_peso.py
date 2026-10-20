@@ -140,11 +140,10 @@ def test_inactive_existing_agendamento_chegada_iniciar(s, tutor):
 
 
 def test_audit_inativou(s, tutor):
-    r = s.get(f"{API}/audit")
-    if r.status_code != 200:
-        pytest.skip("no audit endpoint")
-    txt = r.text
-    assert "inativou" in txt and "reativou" in txt
+    from pymongo import MongoClient
+    db = MongoClient(os.environ["MONGO_URL"])[os.environ["DB_NAME"]]
+    acoes = {a["action"] for a in db.audit_log.find({"action": {"$in": ["inativou", "reativou"]}}, {"action": 1})}
+    assert {"inativou", "reativou"} <= acoes
 
 
 # --- Weight series

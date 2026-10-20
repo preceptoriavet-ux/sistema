@@ -1,5 +1,6 @@
 from io import BytesIO
 from datetime import datetime
+from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
 
 from reportlab.lib.pagesizes import A4
@@ -23,8 +24,12 @@ PRIMARY = colors.HexColor("#165b4c")
 MUTED = colors.HexColor("#64748b")
 
 
+def _esc(text) -> str:
+    return escape(str(text or ""))
+
+
 def _br(text: str) -> str:
-    return (text or "").replace("\n", "<br/>").strip()
+    return _esc(text).replace("\n", "<br/>").strip()
 
 
 TZ_BR = ZoneInfo("America/Sao_Paulo")
@@ -55,11 +60,11 @@ def _cabecalho(el: list, clinic: dict, logo_bytes: bytes, ss) -> None:
             el.append(Spacer(1, 4))
         except Exception:
             pass
-    el.append(Paragraph(clinic.get("nome", "Clínica Veterinária"),
+    el.append(Paragraph(_esc(clinic.get("nome", "Clínica Veterinária")),
                         ParagraphStyle("hcn", parent=ss["Title"], fontSize=15, textColor=PRIMARY, spaceAfter=2, alignment=TA_CENTER)))
     linha2 = " · ".join([x for x in [clinic.get("endereco", ""), clinic.get("telefone", "")] if x])
     if linha2:
-        el.append(Paragraph(linha2, ParagraphStyle("hcs", parent=ss["Normal"], fontSize=8.5, textColor=MUTED, alignment=TA_CENTER)))
+        el.append(Paragraph(_esc(linha2), ParagraphStyle("hcs", parent=ss["Normal"], fontSize=8.5, textColor=MUTED, alignment=TA_CENTER)))
     el.append(Spacer(1, 5))
     el.append(HRFlowable(width="100%", thickness=1.2, color=PRIMARY))
 
@@ -85,10 +90,10 @@ def build_historico_pdf(paciente: dict, tutor: dict, eventos: list, clinic: dict
     el.append(Paragraph("Histórico Clínico do Paciente", title))
     pinfo = " / ".join([x for x in [paciente.get("especie", ""), paciente.get("raca", ""), paciente.get("sexo", "")] if x]) or "—"
     info = [
-        [Paragraph("PACIENTE", label), Paragraph(f"<b>{paciente.get('nome', '')}</b> (Nº {paciente.get('codigo', '—')})", val),
-         Paragraph("TUTOR(A)", label), Paragraph(f"{tutor.get('nome', '—')} (Nº {tutor.get('codigo', '—')})", val)],
-        [Paragraph("ESPÉCIE / RAÇA / SEXO", label), Paragraph(pinfo, val),
-         Paragraph("CONTATO", label), Paragraph(tutor.get("telefone", "") or "—", val)],
+        [Paragraph("PACIENTE", label), Paragraph(f"<b>{_esc(paciente.get('nome', ''))}</b> (Nº {paciente.get('codigo', '—')})", val),
+         Paragraph("TUTOR(A)", label), Paragraph(f"{_esc(tutor.get('nome', '—'))} (Nº {tutor.get('codigo', '—')})", val)],
+        [Paragraph("ESPÉCIE / RAÇA / SEXO", label), Paragraph(_esc(pinfo), val),
+         Paragraph("CONTATO", label), Paragraph(_esc(tutor.get("telefone", "") or "—"), val)],
         [Paragraph("ALERGIAS / ALERTAS", label),
          Paragraph(_br(" · ".join([x for x in [paciente.get("alergias", ""), paciente.get("alertas", "")] if x])) or "—", val),
          Paragraph("PERÍODO", label), Paragraph(periodo or "Todo o histórico", val)],
@@ -105,8 +110,8 @@ def build_historico_pdf(paciente: dict, tutor: dict, eventos: list, clinic: dict
     el.append(Spacer(1, 6))
 
     for e in eventos:
-        cab = f"<b>{e['titulo']}</b>"
-        meta = f"{_fmt_data(e['data'])} · {TIPO_LABEL.get(e['tipo'], e['tipo'])} · {e.get('status_label', '')}"
+        cab = f"<b>{_esc(e['titulo'])}</b>"
+        meta = f"{_fmt_data(e['data'])} · {TIPO_LABEL.get(e['tipo'], e['tipo'])} · {_esc(e.get('status_label', ''))}"
         if e.get("critico"):
             meta += " · <font color='#be123c'><b>CRÍTICO</b></font>"
         rows = [[Paragraph(cab, ev_t)], [Paragraph(meta, ev_m)]]
@@ -123,7 +128,7 @@ def build_historico_pdf(paciente: dict, tutor: dict, eventos: list, clinic: dict
     if not eventos:
         el.append(Paragraph("Nenhum registro no período selecionado.", small))
     el.append(Spacer(1, 12))
-    el.append(Paragraph(f"Emitido em {datetime.now(TZ_BR).strftime('%d/%m/%Y %H:%M')} por {emitido_por} — {clinic.get('nome', '')}", foot))
+    el.append(Paragraph(f"Emitido em {datetime.now(TZ_BR).strftime('%d/%m/%Y %H:%M')} por {_esc(emitido_por)} — {_esc(clinic.get('nome', ''))}", foot))
     pdf.build(el)
     return buf.getvalue()
 
@@ -155,20 +160,20 @@ def build_documento_pdf(doc: dict, clinic: dict, logo_bytes: bytes = None) -> by
             el.append(Spacer(1, 6))
         except Exception:
             pass
-    el.append(Paragraph(clinic.get("nome", "Clínica Veterinária"), clinic_name))
+    el.append(Paragraph(_esc(clinic.get("nome", "Clínica Veterinária")), clinic_name))
     linha2 = " · ".join([x for x in [clinic.get("endereco", ""), clinic.get("telefone", "")] if x])
     if linha2:
-        el.append(Paragraph(linha2, clinic_sub))
+        el.append(Paragraph(_esc(linha2), clinic_sub))
     if clinic.get("cnpj"):
-        el.append(Paragraph(f"CNPJ: {clinic['cnpj']}", clinic_sub))
+        el.append(Paragraph(f"CNPJ: {_esc(clinic['cnpj'])}", clinic_sub))
     el.append(Spacer(1, 6))
     el.append(HRFlowable(width="100%", thickness=1.2, color=PRIMARY))
-    el.append(Paragraph((doc.get("titulo") or TIPO_TITULO.get(doc["tipo"], "Documento")), title))
+    el.append(Paragraph(_esc(doc.get("titulo") or TIPO_TITULO.get(doc["tipo"], "Documento")), title))
 
     info = [
-        [Paragraph("PACIENTE", label), Paragraph(doc.get("paciente_nome", "—"), val),
-         Paragraph("TUTOR(A)", label), Paragraph(doc.get("tutor_nome", "—"), val)],
-        [Paragraph("ESPÉCIE / RAÇA", label), Paragraph(doc.get("paciente_info", "—"), val),
+        [Paragraph("PACIENTE", label), Paragraph(_esc(doc.get("paciente_nome", "—")), val),
+         Paragraph("TUTOR(A)", label), Paragraph(_esc(doc.get("tutor_nome", "—")), val)],
+        [Paragraph("ESPÉCIE / RAÇA", label), Paragraph(_esc(doc.get("paciente_info", "—")), val),
          Paragraph("DATA", label), Paragraph(doc.get("data_fmt", "—"), val)],
     ]
     t = Table(info, colWidths=[32 * mm, 54 * mm, 28 * mm, 54 * mm])
@@ -195,11 +200,11 @@ def build_documento_pdf(doc: dict, clinic: dict, logo_bytes: bytes = None) -> by
     el.append(Spacer(1, 40))
     el.append(HRFlowable(width="55%", thickness=0.8, color=colors.HexColor("#334155")))
     el.append(Spacer(1, 3))
-    el.append(Paragraph(f"<b>{doc.get('profissional_nome', '')}</b>", sign))
+    el.append(Paragraph(f"<b>{_esc(doc.get('profissional_nome', ''))}</b>", sign))
     if doc.get("conselho"):
-        el.append(Paragraph(f"Médico(a)-Veterinário(a) · {doc['conselho']}", foot))
+        el.append(Paragraph(f"Médico(a)-Veterinário(a) · {_esc(doc['conselho'])}", foot))
     el.append(Spacer(1, 18))
-    el.append(Paragraph(f"Documento emitido em {doc.get('data_fmt', '')} — {clinic.get('nome', '')}", foot))
+    el.append(Paragraph(f"Documento emitido em {doc.get('data_fmt', '')} — {_esc(clinic.get('nome', ''))}", foot))
 
     pdf.build(el)
     return buf.getvalue()
