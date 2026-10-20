@@ -70,7 +70,7 @@ export default function Pacientes() {
 
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Buscar por animal, tutor ou microchip…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" data-testid="paciente-search-input" />
+        <Input placeholder="Buscar por nº de cadastro, animal, tutor ou microchip…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" data-testid="paciente-search-input" />
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -85,11 +85,11 @@ export default function Pacientes() {
               )}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="font-semibold truncate">{p.nome}</p>
+                  <p className="font-semibold truncate">{p.nome} <span className="font-mono text-xs font-semibold text-primary" data-testid={`paciente-codigo-${p.id}`}>Nº {p.codigo ?? "—"}</span></p>
                   {can("pacientes:write") && <button onClick={() => openEdit(p)} data-testid={`edit-paciente-${p.id}`}><Pencil className="h-4 w-4 text-muted-foreground" /></button>}
                 </div>
                 <p className="text-xs text-muted-foreground">{esp.label} · {p.raca || "SRD"}</p>
-                <p className="text-xs text-muted-foreground truncate">Tutor: {p.tutor_nome}</p>
+                <p className="text-xs text-muted-foreground truncate">Tutor: {p.tutor_nome} {p.tutor_codigo != null && <span className="font-mono">(Nº {p.tutor_codigo})</span>}</p>
                 <div className="flex flex-wrap gap-1 mt-1.5">
                   {p.peso && <Badge variant="outline" className="font-mono text-[10px]">{p.peso} kg</Badge>}
                   {p.alergias && <Badge className="bg-rose-100 text-rose-800 border-rose-300 text-[10px]"><AlertTriangle className="h-3 w-3 mr-0.5" />Alergia</Badge>}
@@ -103,13 +103,14 @@ export default function Pacientes() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editId ? "Editar Paciente" : "Novo Paciente"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2">{editId ? "Editar Paciente" : "Novo Paciente"}
+            <Badge variant="outline" className="font-mono" data-testid="paciente-codigo-ficha">{editId ? `Nº ${form.codigo ?? "—"}` : "Nº gerado ao salvar"}</Badge></DialogTitle></DialogHeader>
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Identificação</p>
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="sm:col-span-2"><Label>Tutor responsável *</Label>
               <Select value={form.tutor_id} onValueChange={(v) => field("tutor_id", v)}>
                 <SelectTrigger data-testid="paciente-tutor-select"><SelectValue placeholder="Selecione o tutor" /></SelectTrigger>
-                <SelectContent>{tutores.map((t) => <SelectItem key={t.id} value={t.id}>{t.nome}</SelectItem>)}</SelectContent>
+                <SelectContent>{tutores.map((t) => <SelectItem key={t.id} value={t.id}>Nº {t.codigo} — {t.nome}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div><Label>Nome do animal *</Label><Input value={form.nome} onChange={(e) => field("nome", e.target.value)} data-testid="paciente-nome-input" /></div>

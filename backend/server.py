@@ -16,6 +16,7 @@ from bson import ObjectId
 from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends, UploadFile, File, Query, Header
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ReturnDocument
 from pydantic import BaseModel, Field, EmailStr
 
 from storage import put_object, get_object, build_path, init_storage, MIME_TYPES
@@ -342,14 +343,37 @@ async def download_file(path: str, authorization: str = Header(None), auth: str 
     return Response(content=data, media_type=rec.get("content_type", ct))
 
 
+# ---------------- Número de cadastro (sequencial atômico) ----------------
+async def next_codigo(name: str) -> int:
+    doc = await db.counters.find_one_and_update(
+        {"_id": name}, {"$inc": {"seq": 1}}, upsert=True, return_document=ReturnDocument.AFTER)
+    return doc["seq"]
+
+
+async def init_codigos(coll: str):
+    await db[coll].create_index("codigo", unique=True, partialFilterExpression={"codigo": {"$type": "number"}})
+    top = await db[coll].find_one({"codigo": {"$type": "number"}}, sort=[("codigo", -1)])
+    if top:
+        await db.counters.update_one({"_id": coll}, {"$max": {"seq": top["codigo"]}}, upsert=True)
+    async for d in db[coll].find({"codigo": {"$not": {"$type": "number"}}}).sort("created_at", 1):
+        await db[coll].update_one({"_id": d["_id"]}, {"$set": {"codigo": await next_codigo(coll)}})
+
+
+def codigo_filter(q: str) -> list:
+    return [{"codigo": int(q)}] if q.strip().isdigit() else []
+
+
 # ---------------- Tutores ----------------
 @api_router.get("/tutores")
 async def list_tutores(q: Optional[str] = None, user: dict = Depends(require("tutores:read"))):
     query = {}
     if q:
         rx = {"$regex": q, "$options": "i"}
-        query = {"$or": [{"nome": rx}, {"cpf": rx}, {"telefone": rx}, {"whatsapp": rx}, {"email": rx}]}
+        query = {"$or": [{"nome": rx}, {"cpf": rx}, {"telefone": rx}, {"whatsapp": rx}, {"email": rx},
+                         *codigo_filter(q)]}
     rows = await db.tutores.find(query, {"_id": 0}).sort("nome", 1).to_list(1000)
+    if q and codigo_filter(q):
+        rows.sort(key=lambda r: r.get("codigo") != int(q))
     for r in rows:
         r["num_pacientes"] = await db.pacientes.count_documents({"tutor_id": r["id"]})
     return rows
@@ -381,6 +405,7 @@ async def create_tutor(body: dict, user: dict = Depends(require("tutores:write")
     }
     if not doc["nome"]:
         raise HTTPException(status_code=400, detail="Nome é obrigatório")
+    doc["codigo"] = await next_codigo("tutores")
     await db.tutores.insert_one(doc)
     await audit(user, "cadastrou", "tutor", doc["id"], doc["nome"])
     doc.pop("_id", None)
@@ -418,15 +443,18 @@ async def list_pacientes(q: Optional[str] = None, user: dict = Depends(require("
         rx = {"$regex": q, "$options": "i"}
         tutores = await db.tutores.find({"$or": [{"nome": rx}, {"cpf": rx}, {"telefone": rx}]}, {"id": 1}).to_list(500)
         tids = [t["id"] for t in tutores]
-        query = {"$or": [{"nome": rx}, {"microchip": rx}, {"tutor_id": {"$in": tids}}]}
+        query = {"$or": [{"nome": rx}, {"microchip": rx}, {"tutor_id": {"$in": tids}}, *codigo_filter(q)]}
     rows = await db.pacientes.find(query, {"_id": 0}).sort("nome", 1).to_list(1000)
+    if q and codigo_filter(q):
+        rows.sort(key=lambda r: r.get("codigo") != int(q))
     tmap = {}
     for r in rows:
         if r["tutor_id"] not in tmap:
-            t = await db.tutores.find_one({"id": r["tutor_id"]}, {"_id": 0, "nome": 1, "telefone": 1})
+            t = await db.tutores.find_one({"id": r["tutor_id"]}, {"_id": 0, "nome": 1, "telefone": 1, "codigo": 1})
             tmap[r["tutor_id"]] = t or {}
         r["tutor_nome"] = tmap[r["tutor_id"]].get("nome", "")
         r["tutor_telefone"] = tmap[r["tutor_id"]].get("telefone", "")
+        r["tutor_codigo"] = tmap[r["tutor_id"]].get("codigo")
     return rows
 
 
@@ -459,6 +487,7 @@ async def create_paciente(body: dict, user: dict = Depends(require("pacientes:wr
     }
     if not doc["nome"]:
         raise HTTPException(status_code=400, detail="Nome do animal é obrigatório")
+    doc["codigo"] = await next_codigo("pacientes")
     await db.pacientes.insert_one(doc)
     await audit(user, "cadastrou", "paciente", doc["id"], doc["nome"])
     doc.pop("_id", None)
@@ -1124,7 +1153,8 @@ async def create_documento(body: dict, user: dict = Depends(require("prontuario:
     agora = datetime.now(timezone.utc)
     pinfo = " / ".join([x for x in [paciente.get("especie", ""), paciente.get("raca", "")] if x]) or "—"
     render = {
-        "tipo": tipo, "paciente_nome": paciente["nome"], "tutor_nome": tutor.get("nome", "") if tutor else "",
+        "tipo": tipo, "paciente_nome": f"{paciente['nome']} (Nº {paciente.get('codigo', '—')})",
+        "tutor_nome": f"{tutor.get('nome', '')} (Nº {tutor.get('codigo', '—')})" if tutor else "",
         "paciente_info": pinfo, "data_fmt": agora.strftime("%d/%m/%Y %H:%M"),
         "corpo": body.get("corpo", ""), "medicamentos": body.get("medicamentos", ""),
         "profissional_nome": user.get("name", ""), "conselho": user.get("conselho", ""),
@@ -1140,7 +1170,7 @@ async def create_documento(body: dict, user: dict = Depends(require("prontuario:
     result = put_object(path, pdf_bytes, "application/pdf")
     doc = {
         "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
-        "tutor_id": paciente["tutor_id"], "tutor_nome": render["tutor_nome"],
+        "tutor_id": paciente["tutor_id"], "tutor_nome": tutor.get("nome", "") if tutor else "",
         "tipo": tipo, "titulo": TIPO_TITULO[tipo], "corpo": body.get("corpo", ""),
         "medicamentos": body.get("medicamentos", ""), "prontuario_id": body.get("prontuario_id", ""),
         "pdf_path": result["path"], "pdf_nome": f"{tipo}_{paciente['nome']}.pdf",
@@ -1340,6 +1370,8 @@ async def startup():
     await db.users.create_index("email", unique=True)
     await db.tutores.create_index("cpf")
     await db.pacientes.create_index("tutor_id")
+    await init_codigos("tutores")
+    await init_codigos("pacientes")
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})

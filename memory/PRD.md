@@ -93,3 +93,9 @@ Triagem (encaminhamento automático ao prontuário + sinais de alerta), geraçã
 - iniciar_prontuario_core: busca entrada ativa da fila (por agendamento_id ou do paciente, qualquer origem) → "em_consulta" + vincula agendamento/prontuário; se não existir, cria entrada já "em_consulta". Prontuário guarda fila_id.
 - POST /api/prontuarios/{id}/iniciar (botão "Iniciar Atendimento" no prontuário rascunho não iniciado); "Concluir Atendimento" aparece após iniciado e conclui fila (fila_id/agendamento_id) + agendamento.
 - Prontuário criado pela triagem herda fila_id da triagem. Testado via curl (3 cenários) + screenshot.
+
+## 2026-10 — Nº de cadastro numérico (tutores e pacientes) (DONE)
+- Campo `codigo` (int) gerado por contador atômico em `counters` ($inc, find_one_and_update) + índice único parcial; sequências separadas (tutores / pacientes); não editável; números excluídos não são reutilizados.
+- Startup (init_codigos): numera registros antigos por ordem de criação e sincroniza o contador.
+- Busca por número em /api/tutores e /api/pacientes (match exato aparece primeiro). Exibido em listas, fichas, select de tutor e PDFs ("Nome (Nº X)").
+- Testado: 15 criações simultâneas sem duplicidade; PDF verificado; screenshots.

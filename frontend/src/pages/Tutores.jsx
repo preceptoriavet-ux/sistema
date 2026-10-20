@@ -65,13 +65,14 @@ export default function Tutores() {
 
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Buscar por nome, CPF ou telefone…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" data-testid="tutor-search-input" />
+        <Input placeholder="Buscar por nº de cadastro, nome, CPF ou telefone…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" data-testid="tutor-search-input" />
       </div>
 
       <Card className="overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-20">Nº</TableHead>
               <TableHead>Nome</TableHead>
               <TableHead className="hidden md:table-cell">CPF</TableHead>
               <TableHead className="hidden sm:table-cell">Contato</TableHead>
@@ -83,6 +84,7 @@ export default function Tutores() {
           <TableBody>
             {rows.map((t) => (
               <TableRow key={t.id} className="hover:bg-slate-50/80" data-testid={`tutor-row-${t.id}`}>
+                <TableCell className="font-mono text-sm font-semibold text-primary" data-testid={`tutor-codigo-${t.id}`}>{t.codigo ?? "—"}</TableCell>
                 <TableCell className="font-medium">{t.nome}</TableCell>
                 <TableCell className="hidden md:table-cell font-mono text-xs">{t.cpf || "—"}</TableCell>
                 <TableCell className="hidden sm:table-cell text-sm"><span className="flex items-center gap-1 text-muted-foreground"><Phone className="h-3 w-3" />{t.telefone || "—"}</span></TableCell>
@@ -96,14 +98,15 @@ export default function Tutores() {
                 </TableCell>
               </TableRow>
             ))}
-            {rows.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">Nenhum tutor encontrado.</TableCell></TableRow>}
+            {rows.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Nenhum tutor encontrado.</TableCell></TableRow>}
           </TableBody>
         </Table>
       </Card>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editId ? "Editar Tutor" : "Novo Tutor"}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2">{editId ? "Editar Tutor" : "Novo Tutor"}
+            <Badge variant="outline" className="font-mono" data-testid="tutor-codigo-ficha">{editId ? `Nº ${form.codigo ?? "—"}` : "Nº gerado ao salvar"}</Badge></DialogTitle></DialogHeader>
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Dados do Tutor</p>
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="sm:col-span-2"><Label>Nome completo *</Label><Input value={form.nome} onChange={(e) => field("nome", e.target.value)} data-testid="tutor-nome-input" /></div>
