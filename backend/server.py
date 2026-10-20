@@ -808,6 +808,10 @@ async def list_triagem(paciente_id: Optional[str] = None, user: dict = Depends(r
     return await db.triagem.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
 
 
+TRIAGEM_FIELDS = ["queixa_principal", "inicio_sinais", "historico", "temperatura", "fc", "fr", "peso",
+                  "dor", "hidratacao", "info_tutor", "sinais_alerta", "prioridade", "observacoes"]
+
+
 @api_router.post("/triagem")
 async def create_triagem(body: dict, user: dict = Depends(require("triagem:write"))):
     paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
@@ -817,13 +821,9 @@ async def create_triagem(body: dict, user: dict = Depends(require("triagem:write
         "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
         "especie": paciente.get("especie", ""), "tutor_id": paciente["tutor_id"],
         "fila_id": body.get("fila_id", ""),
-        "queixa_principal": body.get("queixa_principal", ""), "inicio_sinais": body.get("inicio_sinais", ""),
-        "historico": body.get("historico", ""), "temperatura": body.get("temperatura", ""),
-        "fc": body.get("fc", ""), "fr": body.get("fr", ""), "peso": body.get("peso", ""),
-        "dor": body.get("dor", ""), "hidratacao": body.get("hidratacao", ""),
-        "info_tutor": body.get("info_tutor", ""), "sinais_alerta": body.get("sinais_alerta", ""),
-        "prioridade": body.get("prioridade", "normal"), "observacoes": body.get("observacoes", ""),
+        **{k: body.get(k, "") for k in TRIAGEM_FIELDS}, "prioridade": body.get("prioridade") or "normal",
         "responsavel": user.get("name", ""), "profissional_id": str(user["_id"]),
+        "status": "em_andamento", "iniciado_at": now_iso(), "concluido_at": "", "alteracoes": [],
         "created_at": now_iso(),
     }
     # Vincula ao agendamento do dia (se houver); o prontuário do agendamento exibirá a triagem
@@ -833,26 +833,71 @@ async def create_triagem(body: dict, user: dict = Depends(require("triagem:write
          "status": {"$nin": ["concluido", "cancelado", "falta"]}}, {"_id": 0})
     doc["agendamento_id"] = body.get("agendamento_id") or (ag["id"] if ag else "")
     await db.triagem.insert_one(doc)
+    if doc["fila_id"]:
+        await db.fila.update_one({"id": doc["fila_id"]}, {"$set": {"status": "em_triagem", "updated_at": now_iso()}})
+    await audit(user, "iniciou triagem", "triagem", doc["id"], paciente["nome"])
+    doc.pop("_id", None)
+    if body.get("concluir"):
+        return await concluir_triagem(doc["id"], {}, user)
+    return doc
+
+
+@api_router.put("/triagem/{tid}")
+async def update_triagem(tid: str, body: dict, user: dict = Depends(require("triagem:write"))):
+    existing = await db.triagem.find_one({"id": tid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Triagem não encontrada")
+    updates = {k: body[k] for k in TRIAGEM_FIELDS if k in body and body[k] != existing.get(k)}
+    if not updates:
+        return existing
+    op = {"$set": {**updates, "updated_at": now_iso()}}
+    if existing.get("status", "concluida") == "concluida":
+        op["$push"] = {"alteracoes": {"at": now_iso(), "por": user.get("name", ""), "campos": list(updates.keys()),
+                                      "anterior": {k: existing.get(k, "") for k in updates}}}
+        await audit(user, "alterou triagem concluída", "triagem", tid, ", ".join(updates.keys()))
+    else:
+        await audit(user, "editou triagem", "triagem", tid, "")
+    await db.triagem.update_one({"id": tid}, op)
+    return await db.triagem.find_one({"id": tid}, {"_id": 0})
+
+
+@api_router.post("/triagem/{tid}/concluir")
+async def concluir_triagem(tid: str, body: dict, user: dict = Depends(require("triagem:write"))):
+    existing = await db.triagem.find_one({"id": tid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Triagem não encontrada")
+    if existing.get("status", "concluida") == "concluida":
+        raise HTTPException(status_code=400, detail="Triagem já concluída")
+    updates = {k: body[k] for k in TRIAGEM_FIELDS if k in body}
+    await db.triagem.update_one({"id": tid}, {"$set": {**updates, "status": "concluida", "concluido_at": now_iso()}})
+    doc = await db.triagem.find_one({"id": tid}, {"_id": 0})
     pront_ag = doc["agendamento_id"] and await db.prontuarios.find_one(
         {"agendamento_id": doc["agendamento_id"], "status": "rascunho"})
     # Encaminha ao prontuário: cria registro inicial vinculado (se não houver um do agendamento)
     if not pront_ag:
-      await db.prontuarios.insert_one({
-        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
-        "tutor_id": paciente["tutor_id"], "origem": "triagem", "triagem_id": doc["id"], "agendamento_id": doc["agendamento_id"],
-        "motivo": "Atendimento após triagem", "queixa_principal": doc["queixa_principal"],
-        "anamnese": doc["historico"], "exame_fisico": "", "temperatura": doc["temperatura"],
-        "fc": doc["fc"], "fr": doc["fr"], "peso": doc["peso"], "lista_problemas": "", "hipoteses": "",
-        "diagnostico": "", "exames_solicitados": "", "plano_terapeutico": "", "prescricoes": "",
-        "orientacoes": "", "retorno": "", "profissional_id": "", "profissional_nome": "",
-        "status": "rascunho", "revisado_por": "", "correcoes": [], "created_at": now_iso(),
-    })
-    # Atualiza fila se veio da recepção
+        await db.prontuarios.insert_one({
+            "id": str(uuid.uuid4()), "paciente_id": doc["paciente_id"], "paciente_nome": doc["paciente_nome"],
+            "tutor_id": doc["tutor_id"], "origem": "triagem", "triagem_id": tid,
+            "agendamento_id": doc["agendamento_id"], **{k: "" for k in PRONT_FIELDS},
+            "motivo": "Atendimento após triagem", "queixa_principal": doc["queixa_principal"],
+            "anamnese": doc["historico"], "temperatura": doc["temperatura"], "fc": doc["fc"], "fr": doc["fr"],
+            "peso": doc["peso"], "profissional_id": "", "profissional_nome": "",
+            "status": "rascunho", "revisado_por": "", "correcoes": [], "created_at": now_iso(),
+        })
     if doc["fila_id"]:
         await db.fila.update_one({"id": doc["fila_id"]}, {"$set": {"status": "aguardando_consulta", "updated_at": now_iso()}})
-    await audit(user, "registrou triagem", "triagem", doc["id"], f"{paciente['nome']} ({doc['prioridade']})")
-    doc.pop("_id", None)
+    await audit(user, "concluiu triagem", "triagem", tid, f"{doc['paciente_nome']} ({doc['prioridade']})")
     return doc
+
+
+@api_router.delete("/triagem/{tid}")
+async def delete_triagem(tid: str, user: dict = Depends(require("triagem:write"))):
+    existing = await db.triagem.find_one({"id": tid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Triagem não encontrada")
+    await db.triagem.delete_one({"id": tid})
+    await audit(user, "excluiu triagem", "triagem", tid, existing.get("paciente_nome", ""))
+    return {"ok": True}
 
 
 # ---------------- Vacinas / Medicina Preventiva ----------------
