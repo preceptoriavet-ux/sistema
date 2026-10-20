@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { ArrowLeft, FileDown, Search, X } from "lucide-react";
 import { HistoricoHeader } from "@/components/historico/HistoricoHeader";
 import { TimelineItem } from "@/components/historico/TimelineItem";
+import { PesoChart } from "@/components/historico/PesoChart";
 import { diaKey, parseData } from "@/components/historico/tipos";
 
 const diaLabel = (k) => { const d = parseData(k); return d ? d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "long", year: "numeric" }) : "Sem data"; };
@@ -71,6 +72,8 @@ export default function PacienteHistorico() {
       </div>
 
       <HistoricoHeader paciente={data.paciente} tutor={data.tutor} contadores={data.contadores} selecionados={tipos} toggle={toggle} />
+      {data.paciente.ativo === false && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800" data-testid="historico-paciente-inativo">Paciente inativo — histórico preservado; novos registros bloqueados até a reativação.</p>}
+      <PesoChart pesos={data.pesos} />
 
       <div className="flex flex-wrap items-end gap-3">
         <div><Label className="text-xs">De</Label><Input type="date" value={periodo.data_ini} onChange={(e) => setPeriodo((p) => ({ ...p, data_ini: e.target.value }))} className="h-9" data-testid="historico-data-ini" /></div>

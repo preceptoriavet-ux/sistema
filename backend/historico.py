@@ -52,6 +52,28 @@ def _ev(tipo: str, r: dict, data: str, titulo: str, status: str, campos: list, *
             "paciente_codigo": r.get("paciente_codigo"), **extra}
 
 
+def _num(v):
+    try:
+        return round(float(str(v).replace(",", ".").strip()), 2)
+    except (ValueError, TypeError):
+        return None
+
+
+def serie_peso(fontes: dict, paciente: dict) -> list:
+    pts = []
+    for coll, fonte in (("prontuarios", "Prontuário"), ("triagem", "Triagem")):
+        for r in fontes.get(coll, []):
+            peso = _num(r.get("peso"))
+            if peso and peso > 0:
+                pts.append({"data_local": data_local(r.get("created_at", "")), "peso": peso, "fonte": fonte})
+    peso = _num(paciente.get("peso"))
+    if peso and peso > 0:
+        pts.append({"data_local": data_local(paciente.get("updated_at") or paciente.get("created_at", "")),
+                    "peso": peso, "fonte": "Cadastro"})
+    pts.sort(key=lambda x: x["data_local"])
+    return pts
+
+
 def build_eventos(fontes: dict) -> list:
     ev = []
     for a in fontes.get("agendamentos", []):

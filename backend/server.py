@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, EmailStr
 
 from storage import put_object, get_object, build_path, init_storage, MIME_TYPES
 from pdfgen import build_documento_pdf, build_historico_pdf, TIPO_TITULO
-from historico import build_eventos
+from historico import build_eventos, serie_peso
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -438,13 +438,16 @@ async def delete_tutor(tutor_id: str, user: dict = Depends(require("tutores:writ
 
 # ---------------- Pacientes ----------------
 @api_router.get("/pacientes")
-async def list_pacientes(q: Optional[str] = None, user: dict = Depends(require("pacientes:read"))):
+async def list_pacientes(q: Optional[str] = None, incluir_inativos: bool = False,
+                         user: dict = Depends(require("pacientes:read"))):
     query = {}
     if q:
         rx = {"$regex": q, "$options": "i"}
         tutores = await db.tutores.find({"$or": [{"nome": rx}, {"cpf": rx}, {"telefone": rx}]}, {"id": 1}).to_list(500)
         tids = [t["id"] for t in tutores]
         query = {"$or": [{"nome": rx}, {"microchip": rx}, {"tutor_id": {"$in": tids}}, *codigo_filter(q)]}
+    if not incluir_inativos:
+        query["ativo"] = {"$ne": False}
     rows = await db.pacientes.find(query, {"_id": 0}).sort("nome", 1).to_list(1000)
     if q and codigo_filter(q):
         rows.sort(key=lambda r: r.get("codigo") != int(q))
@@ -510,11 +513,37 @@ async def update_paciente(pid: str, body: dict, user: dict = Depends(require("pa
     return await db.pacientes.find_one({"id": pid}, {"_id": 0})
 
 
+BLOQUEIO_EXCLUSAO = [("prontuarios", "prontuário(s)"), ("exames", "exame(s)"), ("documentos", "documento(s)"),
+                     ("triagem", "triagem(ns)"), ("vacinas", "vacina(s)")]
+
+
 @api_router.delete("/pacientes/{pid}")
 async def delete_paciente(pid: str, user: dict = Depends(require("pacientes:write"))):
+    paciente = await db.pacientes.find_one({"id": pid}, {"_id": 0})
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente não encontrado")
+    vinculos = [f"{n} {label}" for coll, label in BLOQUEIO_EXCLUSAO
+                if (n := await db[coll].count_documents({"paciente_id": pid}))]
+    if vinculos:
+        raise HTTPException(status_code=409, detail=f"Não é possível excluir: o paciente possui {', '.join(vinculos)}. "
+                                                    "Inative o cadastro para preservar o histórico.")
     await db.pacientes.delete_one({"id": pid})
-    await audit(user, "excluiu", "paciente", pid, "")
+    await db.agendamentos.delete_many({"paciente_id": pid})
+    await db.fila.delete_many({"paciente_id": pid})
+    await audit(user, "excluiu", "paciente", pid, paciente["nome"])
     return {"ok": True}
+
+
+@api_router.put("/pacientes/{pid}/ativo")
+async def ativar_paciente(pid: str, body: dict, user: dict = Depends(require("pacientes:write"))):
+    paciente = await db.pacientes.find_one({"id": pid}, {"_id": 0})
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente não encontrado")
+    ativo = bool(body.get("ativo"))
+    await db.pacientes.update_one({"id": pid}, {"$set": {
+        "ativo": ativo, "inativado_at": "" if ativo else now_iso(), "inativado_por": "" if ativo else user.get("name", "")}})
+    await audit(user, "reativou" if ativo else "inativou", "paciente", pid, paciente["nome"])
+    return await db.pacientes.find_one({"id": pid}, {"_id": 0})
 
 
 # ---------------- Linha do tempo do paciente ----------------
@@ -542,13 +571,15 @@ async def montar_historico(pid: str, user: dict, tipos: str, data_ini: str, data
     fontes = {c: await db[c].find({"paciente_id": pid}, {"_id": 0}).to_list(5000)
               for c, perm in HISTORICO_FONTES if perm in perms}
     eventos = build_eventos(fontes)
+    pesos = [x for x in serie_peso(fontes, paciente)
+             if (not data_ini or x["data_local"][:10] >= data_ini) and (not data_fim or x["data_local"][:10] <= data_fim)]
     contadores = {}
     for e in eventos:
         contadores[e["tipo"]] = contadores.get(e["tipo"], 0) + 1
     sel = [t for t in (tipos or "").split(",") if t]
     eventos = [e for e in eventos if (not sel or e["tipo"] in sel)
                and (not data_ini or e["data_local"][:10] >= data_ini) and (not data_fim or e["data_local"][:10] <= data_fim)]
-    return paciente, tutor, eventos, contadores
+    return paciente, tutor, eventos, contadores, pesos
 
 
 @api_router.get("/pacientes/codigo/{codigo}")
@@ -562,14 +593,14 @@ async def paciente_por_codigo(codigo: int, user: dict = Depends(require("pacient
 @api_router.get("/pacientes/{pid}/historico")
 async def historico_paciente(pid: str, tipos: str = "", data_ini: str = "", data_fim: str = "",
                              user: dict = Depends(require("pacientes:read"))):
-    paciente, tutor, eventos, contadores = await montar_historico(pid, user, tipos, data_ini, data_fim)
-    return {"paciente": paciente, "tutor": tutor, "eventos": eventos, "contadores": contadores}
+    paciente, tutor, eventos, contadores, pesos = await montar_historico(pid, user, tipos, data_ini, data_fim)
+    return {"paciente": paciente, "tutor": tutor, "eventos": eventos, "contadores": contadores, "pesos": pesos}
 
 
 @api_router.get("/pacientes/{pid}/historico/pdf")
 async def historico_paciente_pdf(pid: str, tipos: str = "", data_ini: str = "", data_fim: str = "",
                                  user: dict = Depends(require("pacientes:read"))):
-    paciente, tutor, eventos, _ = await montar_historico(pid, user, tipos, data_ini, data_fim)
+    paciente, tutor, eventos, _, _ = await montar_historico(pid, user, tipos, data_ini, data_fim)
     clinic = await db.config.find_one({"id": "clinica"}, {"_id": 0}) or DEFAULT_CLINIC
     logo_bytes = None
     if clinic.get("logo_path"):
@@ -602,6 +633,8 @@ async def create_agendamento(body: dict, user: dict = Depends(require("agenda:wr
     paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
     if not paciente:
         raise HTTPException(status_code=400, detail="Paciente inválido")
+    if paciente.get("ativo") is False:
+        raise HTTPException(status_code=400, detail="Paciente inativo — reative o cadastro para novos registros")
     inicio = body["inicio"]
     fim = body.get("fim", "")
     prof = body.get("profissional_id", "")
@@ -771,6 +804,8 @@ async def add_fila(body: dict, user: dict = Depends(require("fila:write"))):
     paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
     if not paciente:
         raise HTTPException(status_code=400, detail="Paciente inválido")
+    if paciente.get("ativo") is False:
+        raise HTTPException(status_code=400, detail="Paciente inativo — reative o cadastro para novos registros")
     tutor = await db.tutores.find_one({"id": paciente["tutor_id"]}, {"_id": 0})
     doc = {
         "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"], "paciente_codigo": paciente.get("codigo"),
@@ -816,6 +851,8 @@ async def create_prontuario(body: dict, user: dict = Depends(require("prontuario
     paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
     if not paciente:
         raise HTTPException(status_code=400, detail="Paciente inválido")
+    if paciente.get("ativo") is False:
+        raise HTTPException(status_code=400, detail="Paciente inativo — reative o cadastro para novos registros")
     is_estagiario = user.get("role") == "estagiario"
     doc = {
         "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"], "paciente_codigo": paciente.get("codigo"),
@@ -992,6 +1029,8 @@ async def create_triagem(body: dict, user: dict = Depends(require("triagem:write
     paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
     if not paciente:
         raise HTTPException(status_code=400, detail="Paciente inválido")
+    if paciente.get("ativo") is False:
+        raise HTTPException(status_code=400, detail="Paciente inativo — reative o cadastro para novos registros")
     doc = {
         "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"], "paciente_codigo": paciente.get("codigo"),
         "especie": paciente.get("especie", ""), "tutor_id": paciente["tutor_id"],
@@ -1097,6 +1136,8 @@ async def create_vacina(body: dict, user: dict = Depends(require("vacina:write")
     paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
     if not paciente:
         raise HTTPException(status_code=400, detail="Paciente inválido")
+    if paciente.get("ativo") is False:
+        raise HTTPException(status_code=400, detail="Paciente inativo — reative o cadastro para novos registros")
     proxima = body.get("proxima_dose", "")
     if not proxima:
         proxima = suggest_proxima_dose(paciente.get("especie", ""), body.get("nome", ""), body.get("data_aplicacao", ""))
@@ -1142,6 +1183,8 @@ async def create_exame(body: dict, user: dict = Depends(require("exame:write")))
     paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
     if not paciente:
         raise HTTPException(status_code=400, detail="Paciente inválido")
+    if paciente.get("ativo") is False:
+        raise HTTPException(status_code=400, detail="Paciente inativo — reative o cadastro para novos registros")
     doc = {
         "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"], "paciente_codigo": paciente.get("codigo"),
         "especie": paciente.get("especie", ""), "tutor_id": paciente["tutor_id"],
@@ -1213,6 +1256,8 @@ async def create_documento(body: dict, user: dict = Depends(require("prontuario:
     paciente = await db.pacientes.find_one({"id": body.get("paciente_id")}, {"_id": 0})
     if not paciente:
         raise HTTPException(status_code=400, detail="Paciente inválido")
+    if paciente.get("ativo") is False:
+        raise HTTPException(status_code=400, detail="Paciente inativo — reative o cadastro para novos registros")
     tipo = body.get("tipo", "")
     if tipo not in TIPO_TITULO:
         raise HTTPException(status_code=400, detail="Tipo de documento inválido")

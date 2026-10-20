@@ -13,6 +13,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search, Plus, Pencil, AlertTriangle, Upload, History } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { Switch } from "@/components/ui/switch";
+import { PacienteAcoes } from "@/components/PacienteAcoes";
 
 const EMPTY = { tutor_id: "", nome: "", especie: "canino", raca: "", sexo: "macho", data_nascimento: "", idade_estimada: "", cor: "", peso: "", microchip: "", estado_reprodutivo: "", alergias: "", doencas_preexistentes: "", medicamentos_continuos: "", alertas: "", foto: "", situacao: "ativo" };
 
@@ -27,11 +29,12 @@ export default function Pacientes() {
   const [editId, setEditId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [inativos, setInativos] = useState(false);
 
   const load = useCallback(async (query = "") => {
-    const { data } = await api.get("/pacientes", { params: query ? { q: query } : {} });
+    const { data } = await api.get("/pacientes", { params: { ...(query ? { q: query } : {}), incluir_inativos: inativos } });
     setRows(data);
-  }, []);
+  }, [inativos]);
 
   useEffect(() => { load(); api.get("/tutores").then((r) => setTutores(r.data)); }, [load]);
   useEffect(() => { const t = setTimeout(() => load(q), 350); return () => clearTimeout(t); }, [q, load]);
@@ -70,16 +73,19 @@ export default function Pacientes() {
         {can("pacientes:write") && <Button onClick={openNew} data-testid="novo-paciente-button"><Plus className="h-4 w-4 mr-1.5" />Novo Paciente</Button>}
       </div>
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Buscar por nº de cadastro, animal, tutor ou microchip…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" data-testid="paciente-search-input" />
+      <div className="flex flex-wrap items-center gap-4">
+        <div className="relative max-w-md flex-1 min-w-64">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input placeholder="Buscar por nº de cadastro, animal, tutor ou microchip…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" data-testid="paciente-search-input" />
+        </div>
+        <label className="flex items-center gap-2 text-sm text-muted-foreground"><Switch checked={inativos} onCheckedChange={setInativos} data-testid="mostrar-inativos-switch" />Mostrar inativos</label>
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {rows.map((p) => {
           const esp = especieLabel(p.especie);
           return (
-            <Card key={p.id} className="p-4 flex gap-3" data-testid={`paciente-card-${p.id}`}>
+            <Card key={p.id} className={`p-4 flex gap-3 ${p.ativo === false ? "opacity-60" : ""}`} data-testid={`paciente-card-${p.id}`}>
               {p.foto ? (
                 <img src={fileUrl(p.foto)} alt={p.nome} className="h-16 w-16 rounded-lg object-cover shrink-0" />
               ) : (
@@ -93,6 +99,7 @@ export default function Pacientes() {
                 <p className="text-xs text-muted-foreground">{esp.label} · {p.raca || "SRD"}</p>
                 <p className="text-xs text-muted-foreground truncate">Tutor: {p.tutor_nome} {p.tutor_codigo != null && <span className="font-mono">(Nº {p.tutor_codigo})</span>}</p>
                 <div className="flex flex-wrap gap-1 mt-1.5">
+                  {p.ativo === false && <Badge variant="outline" className="bg-slate-100 text-slate-700 text-[10px]" data-testid={`paciente-inativo-${p.id}`}>Inativo</Badge>}
                   {p.peso && <Badge variant="outline" className="font-mono text-[10px]">{p.peso} kg</Badge>}
                   {p.alergias && <Badge className="bg-rose-100 text-rose-800 border-rose-300 text-[10px]"><AlertTriangle className="h-3 w-3 mr-0.5" />Alergia</Badge>}
                 </div>
@@ -153,7 +160,8 @@ export default function Pacientes() {
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-wrap gap-2">
+            {editId && <PacienteAcoes paciente={form} onDone={() => { setOpen(false); load(q); }} />}
             <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
             <Button onClick={save} disabled={saving} data-testid="save-paciente-button">{saving ? "Salvando…" : "Salvar"}</Button>
           </DialogFooter>
