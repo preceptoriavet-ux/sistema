@@ -12,7 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Plus, Stethoscope, CheckCircle2, ShieldCheck, Clock, FileText } from "lucide-react";
+import { Plus, Stethoscope, CheckCircle2, ShieldCheck, Clock, FileText, PlayCircle } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { TriagemPanel } from "@/components/TriagemPanel";
 
@@ -56,6 +56,16 @@ export default function Prontuarios() {
       if (editId) await api.put(`/prontuarios/${editId}`, { ...form, finalizar, motivo_correcao: "Correção de registro" });
       else await api.post("/prontuarios", { ...form, finalizar });
       toast.success(finalizar ? "Prontuário finalizado" : "Prontuário salvo"); setOpen(false); load();
+    } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
+    finally { setSaving(false); }
+  };
+
+  const iniciar = async () => {
+    setSaving(true);
+    try {
+      const { data } = await api.post(`/prontuarios/${editId}/iniciar`);
+      setForm((f) => ({ ...f, iniciado_at: data.iniciado_at, fila_id: data.fila_id, profissional_nome: data.profissional_nome }));
+      toast.success("Atendimento iniciado — paciente Em Consulta na fila"); load();
     } catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
     finally { setSaving(false); }
   };
@@ -179,7 +189,10 @@ export default function Prontuarios() {
           <DialogFooter className="flex-wrap gap-2">
             <Button variant="outline" onClick={() => setOpen(false)}>Fechar</Button>
             {editId && can("prontuario:write") && <Button variant="outline" onClick={openDoc} data-testid="prontuario-emitir-doc-button"><FileText className="h-4 w-4 mr-1.5" />Emitir Documento</Button>}
-            {editId && form.agendamento_id && editStatus === "rascunho" && can("prontuario:write") && (
+            {editId && !form.iniciado_at && editStatus === "rascunho" && can("prontuario:write") && (
+              <Button onClick={iniciar} disabled={saving} data-testid="iniciar-atendimento-prontuario-button"><PlayCircle className="h-4 w-4 mr-1.5" />Iniciar Atendimento</Button>
+            )}
+            {editId && form.iniciado_at && editStatus === "rascunho" && can("prontuario:write") && (
               <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={concluir} disabled={saving} data-testid="concluir-atendimento-button"><CheckCircle2 className="h-4 w-4 mr-1.5" />Concluir Atendimento</Button>
             )}
             {canValidate && <Button onClick={validar} data-testid="validar-prontuario-button"><ShieldCheck className="h-4 w-4 mr-1.5" />Validar</Button>}

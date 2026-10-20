@@ -567,20 +567,46 @@ async def iniciar_atendimento(aid: str, user: dict = Depends(require("prontuario
         {"agendamento_id": aid, "status": "rascunho", "iniciado_at": {"$exists": False}}, {"_id": 0})
     if not pront:
         pront = await novo_prontuario_agendamento(ag, "agenda")
-    upd = {"iniciado_at": now_iso(), "profissional_id": str(user["_id"]), "profissional_nome": user.get("name", "")}
-    await db.prontuarios.update_one({"id": pront["id"]}, {"$set": upd})
-    await db.agendamentos.update_one({"id": aid}, {"$set": {"status": "em_atendimento", "updated_at": now_iso()}})
-    await fila_do_agendamento(aid, "em_consulta")
-    await audit(user, "iniciou atendimento", "agendamento", aid, ag["paciente_nome"])
-    return await db.prontuarios.find_one({"id": pront["id"]}, {"_id": 0})
+    return await iniciar_prontuario_core(pront, user)
 
 
 FILA_ATIVA = {"$nin": ["concluido", "falta", "cancelado"]}
 
 
-async def fila_do_agendamento(aid: str, status: str):
-    await db.fila.update_many({"agendamento_id": aid, "status": FILA_ATIVA},
-                              {"$set": {"status": status, "updated_at": now_iso()}})
+async def fila_em_consulta(pront: dict, user: dict) -> str:
+    aid = pront.get("agendamento_id", "")
+    fila = aid and await db.fila.find_one({"agendamento_id": aid, "status": FILA_ATIVA}, {"_id": 0})
+    if not fila:
+        fila = await db.fila.find_one({"paciente_id": pront["paciente_id"], "status": FILA_ATIVA}, {"_id": 0},
+                                      sort=[("chegada", -1)])
+    if fila:
+        await db.fila.update_one({"id": fila["id"]}, {"$set": {
+            "status": "em_consulta", "agendamento_id": aid or fila.get("agendamento_id", ""),
+            "prontuario_id": pront["id"], "updated_at": now_iso()}})
+        return fila["id"]
+    paciente = await db.pacientes.find_one({"id": pront["paciente_id"]}, {"_id": 0}) or {}
+    tutor = await db.tutores.find_one({"id": pront["tutor_id"]}, {"_id": 0}) or {}
+    doc = {
+        "id": str(uuid.uuid4()), "paciente_id": pront["paciente_id"], "paciente_nome": pront["paciente_nome"],
+        "especie": paciente.get("especie", ""), "tutor_id": pront["tutor_id"], "tutor_nome": tutor.get("nome", ""),
+        "motivo": pront.get("motivo", ""), "tipo": "agendado" if aid else "espontaneo", "prioridade": "normal",
+        "status": "em_consulta", "profissional_id": str(user["_id"]), "agendamento_id": aid,
+        "prontuario_id": pront["id"], "chegada": now_iso(), "created_by": user.get("name", ""),
+    }
+    await db.fila.insert_one(doc)
+    return doc["id"]
+
+
+async def iniciar_prontuario_core(pront: dict, user: dict) -> dict:
+    fila_id = await fila_em_consulta(pront, user)
+    await db.prontuarios.update_one({"id": pront["id"]}, {"$set": {
+        "iniciado_at": now_iso(), "profissional_id": str(user["_id"]), "profissional_nome": user.get("name", ""),
+        "fila_id": fila_id}})
+    if pront.get("agendamento_id"):
+        await db.agendamentos.update_one({"id": pront["agendamento_id"], "status": {"$nin": ["concluido", "cancelado", "falta"]}},
+                                         {"$set": {"status": "em_atendimento", "updated_at": now_iso()}})
+    await audit(user, "iniciou atendimento", "prontuario", pront["id"], pront.get("paciente_nome", ""))
+    return await db.prontuarios.find_one({"id": pront["id"]}, {"_id": 0})
 
 
 @api_router.post("/agendamentos/{aid}/chegada")
@@ -776,6 +802,18 @@ async def triagem_do_prontuario(rid: str, user: dict = Depends(require("prontuar
     return {"triagem": tri}
 
 
+@api_router.post("/prontuarios/{rid}/iniciar")
+async def iniciar_prontuario(rid: str, user: dict = Depends(require("prontuario:write"))):
+    pront = await db.prontuarios.find_one({"id": rid}, {"_id": 0})
+    if not pront:
+        raise HTTPException(status_code=404, detail="Prontuário não encontrado")
+    if pront.get("status") != "rascunho":
+        raise HTTPException(status_code=400, detail="Prontuário já finalizado")
+    if pront.get("iniciado_at"):
+        return pront
+    return await iniciar_prontuario_core(pront, user)
+
+
 @api_router.post("/prontuarios/{rid}/concluir")
 async def concluir_atendimento(rid: str, body: dict, user: dict = Depends(require("prontuario:write"))):
     existing = await db.prontuarios.find_one({"id": rid}, {"_id": 0})
@@ -786,10 +824,14 @@ async def concluir_atendimento(rid: str, body: dict, user: dict = Depends(requir
         updates["status"] = "aguardando_revisao" if user.get("role") == "estagiario" else "finalizado"
     updates["concluido_at"] = now_iso()
     await db.prontuarios.update_one({"id": rid}, {"$set": updates})
+    ors = [{"id": existing["fila_id"]}] if existing.get("fila_id") else []
+    if existing.get("agendamento_id"):
+        ors.append({"agendamento_id": existing["agendamento_id"]})
+    if ors:
+        await db.fila.update_many({"$or": ors, "status": FILA_ATIVA}, {"$set": {"status": "concluido", "updated_at": now_iso()}})
     if existing.get("agendamento_id"):
         await db.agendamentos.update_one({"id": existing["agendamento_id"]},
                                          {"$set": {"status": "concluido", "updated_at": now_iso()}})
-        await fila_do_agendamento(existing["agendamento_id"], "concluido")
     await audit(user, "concluiu atendimento", "prontuario", rid, existing.get("paciente_nome", ""))
     return await db.prontuarios.find_one({"id": rid}, {"_id": 0})
 
@@ -913,7 +955,7 @@ async def concluir_triagem(tid: str, body: dict, user: dict = Depends(require("t
     if not pront_ag:
         await db.prontuarios.insert_one({
             "id": str(uuid.uuid4()), "paciente_id": doc["paciente_id"], "paciente_nome": doc["paciente_nome"],
-            "tutor_id": doc["tutor_id"], "origem": "triagem", "triagem_id": tid,
+            "tutor_id": doc["tutor_id"], "origem": "triagem", "triagem_id": tid, "fila_id": doc["fila_id"],
             "agendamento_id": doc["agendamento_id"], **{k: "" for k in PRONT_FIELDS},
             "motivo": "Atendimento após triagem", "queixa_principal": doc["queixa_principal"],
             "anamnese": doc["historico"], "temperatura": doc["temperatura"], "fc": doc["fc"], "fr": doc["fr"],
