@@ -1,0 +1,49 @@
+{
+  "summary": "Tested the patient timeline (Linha do tempo) end to end, on both backend and frontend. Backend: 12 new pytest tests in test_historico.py, all passing, plus 10 regression tests in test_triagem.py, also passing (22/22). The tests cover: the response structure and all 7 event types, the paciente_codigo field on new records, the backfill of old records (Rex Nº1), sort order by data_local, data_local being Brasília time (UTC-3), filtering by type and by date, contadores that ignore filters, 404s, lookup by codigo (200/404/422), the PDF (plain, filtered, and empty), the auth requirement, and RBAC. For RBAC, the financeiro role sees only agenda events and estoque sees only vacina events. Frontend checked with Playwright: the 'Linha do tempo' button on /pacientes, the header, the alerts box, chips and counters, type and date filters, clearing filters, the total count, grouping by day, expand/collapse, 'Abrir prontuário' (opens /prontuarios with the dialog), 'Ver PDF' (opens a new tab, file returns 200 application/pdf), 'Ir para Nº' (digits only; unknown number shows a toast; Nº2 goes to Thor), and export (GET historico/pdf with filters returns 200 application/pdf and opens a new tab). Found 2 functional issues (wrong timezone and day grouping when the browser is not on Brasília time; filters carried over when moving to another patient) and a few design issues.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/pacientes/{pid}", "issue": "Deleting a patient does not also delete its records. Prontuários, exames, documentos and vacinas stay behind with no patient and still appear in /prontuarios and the other lists. I deleted the TEST_ leftovers directly in Mongo."},
+      {"endpoint": "link_paciente_codigos", "issue": "The backfill only runs on records that have no paciente_codigo yet. If a patient's codigo ever changes, older records keep the old code. Low risk."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TimelineItem / PacienteHistorico (tipos.js diaKey/parseData)", "issue": "Times and day groups come from e.data read in the browser's timezone, not from the server's data_local (Brasília). Tested with the browser in UTC: a document saved at 10:47 Brasília time showed as 13:47. Events between 21:00 and 23:59 Brasília time can land on the next day and split a day into several sections, because only consecutive items are merged. The list order uses data_local, so it can disagree with the groups. Fix: use e.data_local for both diaKey and the time display.", "selector": "[data-testid^=historico-dia-]", "priority": "MEDIUM"},
+      {"component": "PacienteHistorico", "issue": "Type and date filters are not reset after 'Ir para Nº' (or any change of the :id route). Example: with the 'Exame' filter on and moving to Nº2 Thor, the page showed '0 registro(s)' even though Thor has 14 events. Fix: reset tipos and periodo in a useEffect on [id].", "selector": "[data-testid=historico-ir-numero-input]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Exportar PDF", "issue": "The API call works (200 application/pdf with filters) and a new tab opens, but in headless Chromium the tab stayed on about:blank. This is probably because headless mode does not show blob PDFs, so it is not confirmed as a bug. Please check manually in a real browser. Also, the object URL is never released (URL.revokeObjectURL is not called).", "affected_selectors": ["[data-testid=historico-exportar-pdf]"]}
+    ],
+    "design_issues": [
+      {"screen": "/pacientes/:id/historico", "issues": [
+        "The 'De/Até' date fields use the browser's own date picker (shown as mm/dd/yyyy, US format) instead of the shadcn Calendar/Popover in dd/mm/aaaa.",
+        "Mobile (390px): the alerts box 'Atenção' sits beside the patient name and squeezes it, so the name is cut off and the tutor wraps onto 3 lines. The alerts box should take the full width below the name on small screens.",
+        "The 'Ir para Nº do paciente' placeholder is cut off at w-48 ('Ir para Nº do pacient'). Make the input wider or shorten the text.",
+        "In campos, dates such as 'Próxima dose' and 'Data da coleta' appear as raw YYYY-MM-DD, for example the vacina subtitle '2026-06-22'. Format them as dd/mm/aaaa.",
+        "Vacina and date-only events show '—' where the time would be. This is acceptable, but a date-only event could show the day instead."
+      ]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_historico.py", "/app/test_reports/pytest/pytest_historico.xml"],
+  "action_items": [
+    "Use e.data_local, not e.data, for diaKey grouping and for the time display in TimelineItem and PacienteHistorico.",
+    "Reset tipos and periodo (and numero) when the route :id changes in PacienteHistorico.",
+    "Replace input type=date with the shadcn date picker in pt-BR format.",
+    "Fix the mobile header layout so the alerts box goes below the name.",
+    "Optional: delete a patient's linked records when the patient is deleted, or block deletion while records exist. Call URL.revokeObjectURL after export. Format the date fields in campos."
+  ],
+  "critical_code_review_comments": [
+    "In montar_historico, each collection uses to_list(5000) with no index check on paciente_id. Add indexes on paciente_id in every source collection.",
+    "The RBAC note in the request is inaccurate: recepcionista has prontuario:read, so it does see prontuários and documentos. This matches PERMISSIONS and is not a bug. I tested with financeiro and estoque instead.",
+    "Documentos are gated by prontuario:read, which is consistent with the creation permission."
+  ],
+  "updated_files": ["/app/backend/tests/test_historico.py"],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "~88% (2 functional issues, otherwise every flow passed)"},
+  "test_credentials": "Admin preceptoria.vet@gmail.com / VetCare@2026. Temporary financeiro and estoque users were created by the tests and then deleted.",
+  "seed_data_creation": "The test creates TEST_Tutor Hist and TEST_Pet Hist and then deletes them. Their leftover records and the test users were removed directly in Mongo.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && REACT_APP_BACKEND_URL=... pytest tests/ (pytest.ini uses xdist). Rex Nº1 id f84779f0-68bd-44af-9c1e-fe25625df913 has 25 events. Thor Nº2 has 14 events. The Playwright browser runs in UTC. Retest the timezone and day grouping, the filter reset when changing patient, and the date picker.",
+  "rca of the issue": "Timezone: tipos.js parseData(e.data) uses new Date() on a UTC ISO string, then getDate() and toLocaleTimeString() in the browser's timezone. The backend already sends data_local in Brasília time and sorts by it. Filter carry-over: PacienteHistorico keeps its useState when only the :id route param changes, so tipos and periodo persist."
+}

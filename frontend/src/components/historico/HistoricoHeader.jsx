@@ -23,7 +23,7 @@ export const HistoricoHeader = ({ paciente, tutor, contadores, selecionados, tog
             {tutor.telefone && <span className="ml-2 inline-flex items-center gap-1 text-xs text-muted-foreground"><Phone className="h-3 w-3" />{tutor.telefone}</span>}</p>
         </div>
         {alertas.length > 0 && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 max-w-sm space-y-0.5" data-testid="historico-alertas">
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 w-full sm:w-auto sm:max-w-sm space-y-0.5" data-testid="historico-alertas">
             <p className="flex items-center gap-1 font-semibold"><AlertTriangle className="h-3.5 w-3.5" />Atenção</p>
             {alertas.map((a) => <p key={a}>{a}</p>)}
           </div>

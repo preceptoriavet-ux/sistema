@@ -4,15 +4,15 @@ import { fileUrl } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ExternalLink, FileDown, AlertTriangle } from "lucide-react";
-import { TIPOS_HIST, parseData } from "./tipos";
+import { TIPOS_HIST } from "./tipos";
 
 export const TimelineItem = ({ e }) => {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const cfg = TIPOS_HIST[e.tipo] || TIPOS_HIST.documento;
   const Icon = cfg.icon;
-  const d = parseData(e.data);
-  const hora = e.data?.length > 10 && d ? d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "";
+  const loc = e.data_local || "";
+  const hora = loc.length > 10 ? loc.slice(11, 16) : `${loc.slice(8, 10)}/${loc.slice(5, 7)}`;
   return (
     <li className="relative pl-10" data-testid={`historico-item-${e.id}`}>
       <span className={`absolute left-0 top-3 grid h-8 w-8 place-items-center rounded-full text-white ring-4 ring-background ${cfg.dot}`}><Icon className="h-4 w-4" /></span>

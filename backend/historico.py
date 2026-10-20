@@ -39,7 +39,10 @@ def _vitais(r: dict) -> str:
 
 
 def _campos(pares: list) -> list:
-    return [[k, str(v)] for k, v in pares if v not in (None, "", False)]
+    def fmt(v):
+        s = str(v)
+        return f"{s[8:10]}/{s[5:7]}/{s[:4]}" if len(s) == 10 and s[4] == "-" and s[7] == "-" and s.replace("-", "").isdigit() else s
+    return [[k, fmt(v)] for k, v in pares if v not in (None, "", False)]
 
 
 def _ev(tipo: str, r: dict, data: str, titulo: str, status: str, campos: list, **extra) -> dict:

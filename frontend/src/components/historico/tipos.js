@@ -16,4 +16,4 @@ export const parseData = (s) => {
   return new Date(s);
 };
 
-export const diaKey = (s) => { const d = parseData(s); return d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : "—"; };
+export const diaKey = (e) => (e.data_local || "").slice(0, 10) || "—";

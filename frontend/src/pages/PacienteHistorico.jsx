@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
 import { toast } from "sonner";
@@ -22,11 +22,14 @@ export default function PacienteHistorico() {
   const [exporting, setExporting] = useState(false);
 
   const params = useMemo(() => ({ tipos: tipos.join(","), ...periodo }), [tipos, periodo]);
+  const reqId = useRef(0);
   const load = useCallback(async () => {
-    try { const { data: d } = await api.get(`/pacientes/${id}/historico`, { params }); setData(d); }
+    const rid = ++reqId.current;
+    try { const { data: d } = await api.get(`/pacientes/${id}/historico`, { params }); if (rid === reqId.current) setData(d); }
     catch (e) { toast.error(formatApiError(e.response?.data?.detail)); }
   }, [id, params]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setTipos([]); setPeriodo({ data_ini: "", data_fim: "" }); }, [id]);
 
   const toggle = (k) => setTipos((t) => (t.includes(k) ? t.filter((x) => x !== k) : [...t, k]));
   const irPara = async (ev) => {
@@ -42,13 +45,14 @@ export default function PacienteHistorico() {
       const { data: blob } = await api.get(`/pacientes/${id}/historico/pdf`, { params, responseType: "blob" });
       const url = URL.createObjectURL(blob);
       if (w) w.location.href = url; else window.location.assign(url);
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) { w?.close(); toast.error("Falha ao gerar o PDF"); }
     finally { setExporting(false); }
   };
 
   const grupos = useMemo(() => {
     const g = [];
-    (data?.eventos || []).forEach((e) => { const k = diaKey(e.data); const last = g[g.length - 1]; if (last?.k === k) last.itens.push(e); else g.push({ k, itens: [e] }); });
+    (data?.eventos || []).forEach((e) => { const k = diaKey(e); const last = g[g.length - 1]; if (last?.k === k) last.itens.push(e); else g.push({ k, itens: [e] }); });
     return g;
   }, [data]);
 
@@ -60,7 +64,7 @@ export default function PacienteHistorico() {
         <div className="flex flex-wrap items-center gap-2">
           <form onSubmit={irPara} className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input value={numero} onChange={(e) => setNumero(e.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="Ir para Nº do paciente" className="h-9 w-48 pl-8" data-testid="historico-ir-numero-input" />
+            <Input value={numero} onChange={(e) => setNumero(e.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="Ir para Nº paciente" className="h-9 w-52 pl-8" data-testid="historico-ir-numero-input" />
           </form>
           <Button onClick={exportar} disabled={exporting} data-testid="historico-exportar-pdf"><FileDown className="h-4 w-4 mr-1.5" />{exporting ? "Gerando…" : "Exportar Histórico em PDF"}</Button>
         </div>

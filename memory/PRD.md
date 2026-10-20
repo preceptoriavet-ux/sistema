@@ -99,3 +99,11 @@ Triagem (encaminhamento automático ao prontuário + sinais de alerta), geraçã
 - Startup (init_codigos): numera registros antigos por ordem de criação e sincroniza o contador.
 - Busca por número em /api/tutores e /api/pacientes (match exato aparece primeiro). Exibido em listas, fichas, select de tutor e PDFs ("Nome (Nº X)").
 - Testado: 15 criações simultâneas sem duplicidade; PDF verificado; screenshots.
+
+## 2026-10 — Linha do Tempo do Paciente (DONE)
+- Todos os registros (agendamentos, triagem, prontuários, exames, documentos, vacinas, fila) gravam `paciente_codigo`; backfill na inicialização via $lookup/$merge (link_paciente_codigos).
+- GET /api/pacientes/{id}/historico (tipos, data_ini, data_fim) — eventos cronológicos (data_local = horário de Brasília), contadores, respeita RBAC por módulo. backend/historico.py.
+- GET /api/pacientes/codigo/{n}; GET /api/pacientes/{id}/historico/pdf (build_historico_pdf em pdfgen.py).
+- UI: /pacientes/:id/historico (PacienteHistorico.jsx + components/historico/*), botão "Linha do tempo" nos cards de Pacientes, filtros por tipo/período, "Ir para Nº", expandir itens, abrir prontuário/PDF/laudo, Exportar PDF.
+- Testado: iteration_2.json (backend 22/22); correções de fuso/agrupamento, reset de filtros e layout mobile verificadas por screenshot.
+- Pendente/conhecido: excluir paciente não remove registros clínicos vinculados (ficam órfãos).
