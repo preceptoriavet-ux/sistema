@@ -16,6 +16,7 @@ import Vacinas from "@/pages/Vacinas";
 import Relatorios from "@/pages/Relatorios";
 import Financeiro from "@/pages/Financeiro";
 import Usuarios from "@/pages/Usuarios";
+import PacienteHistorico from "@/pages/PacienteHistorico";
 
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -34,6 +35,7 @@ function AppRoutes() {
       <Route path="/agenda" element={<Protected><Agenda /></Protected>} />
       <Route path="/tutores" element={<Protected><Tutores /></Protected>} />
       <Route path="/pacientes" element={<Protected><Pacientes /></Protected>} />
+      <Route path="/pacientes/:id/historico" element={<Protected><PacienteHistorico /></Protected>} />
       <Route path="/prontuarios" element={<Protected><Prontuarios /></Protected>} />
       <Route path="/triagem" element={<Protected><Triagem /></Protected>} />
       <Route path="/exames" element={<Protected><Exames /></Protected>} />

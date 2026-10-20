@@ -20,7 +20,8 @@ from pymongo import ReturnDocument
 from pydantic import BaseModel, Field, EmailStr
 
 from storage import put_object, get_object, build_path, init_storage, MIME_TYPES
-from pdfgen import build_documento_pdf, TIPO_TITULO
+from pdfgen import build_documento_pdf, build_historico_pdf, TIPO_TITULO
+from historico import build_eventos
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -516,6 +517,73 @@ async def delete_paciente(pid: str, user: dict = Depends(require("pacientes:writ
     return {"ok": True}
 
 
+# ---------------- Linha do tempo do paciente ----------------
+HISTORICO_FONTES = [("agendamentos", "agenda:read"), ("triagem", "triagem:read"), ("prontuarios", "prontuario:read"),
+                    ("exames", "exame:read"), ("documentos", "prontuario:read"), ("vacinas", "vacina:read")]
+
+
+async def link_paciente_codigos():
+    for coll, _ in HISTORICO_FONTES + [("fila", "")]:
+        await db[coll].aggregate([
+            {"$match": {"paciente_codigo": {"$exists": False}}},
+            {"$lookup": {"from": "pacientes", "localField": "paciente_id", "foreignField": "id", "as": "p"}},
+            {"$set": {"paciente_codigo": {"$arrayElemAt": ["$p.codigo", 0]}}},
+            {"$project": {"p": 0}},
+            {"$merge": {"into": coll, "on": "_id", "whenMatched": "merge", "whenNotMatched": "discard"}},
+        ]).to_list(None)
+
+
+async def montar_historico(pid: str, user: dict, tipos: str, data_ini: str, data_fim: str):
+    paciente = await db.pacientes.find_one({"id": pid}, {"_id": 0})
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente não encontrado")
+    tutor = await db.tutores.find_one({"id": paciente["tutor_id"]}, {"_id": 0}) or {}
+    perms = perms_for(user.get("role", ""))
+    fontes = {c: await db[c].find({"paciente_id": pid}, {"_id": 0}).to_list(5000)
+              for c, perm in HISTORICO_FONTES if perm in perms}
+    eventos = build_eventos(fontes)
+    contadores = {}
+    for e in eventos:
+        contadores[e["tipo"]] = contadores.get(e["tipo"], 0) + 1
+    sel = [t for t in (tipos or "").split(",") if t]
+    eventos = [e for e in eventos if (not sel or e["tipo"] in sel)
+               and (not data_ini or e["data_local"][:10] >= data_ini) and (not data_fim or e["data_local"][:10] <= data_fim)]
+    return paciente, tutor, eventos, contadores
+
+
+@api_router.get("/pacientes/codigo/{codigo}")
+async def paciente_por_codigo(codigo: int, user: dict = Depends(require("pacientes:read"))):
+    p = await db.pacientes.find_one({"codigo": codigo}, {"_id": 0, "id": 1, "nome": 1, "codigo": 1})
+    if not p:
+        raise HTTPException(status_code=404, detail=f"Nenhum paciente com Nº {codigo}")
+    return p
+
+
+@api_router.get("/pacientes/{pid}/historico")
+async def historico_paciente(pid: str, tipos: str = "", data_ini: str = "", data_fim: str = "",
+                             user: dict = Depends(require("pacientes:read"))):
+    paciente, tutor, eventos, contadores = await montar_historico(pid, user, tipos, data_ini, data_fim)
+    return {"paciente": paciente, "tutor": tutor, "eventos": eventos, "contadores": contadores}
+
+
+@api_router.get("/pacientes/{pid}/historico/pdf")
+async def historico_paciente_pdf(pid: str, tipos: str = "", data_ini: str = "", data_fim: str = "",
+                                 user: dict = Depends(require("pacientes:read"))):
+    paciente, tutor, eventos, _ = await montar_historico(pid, user, tipos, data_ini, data_fim)
+    clinic = await db.config.find_one({"id": "clinica"}, {"_id": 0}) or DEFAULT_CLINIC
+    logo_bytes = None
+    if clinic.get("logo_path"):
+        try:
+            logo_bytes, _ = get_object(clinic["logo_path"])
+        except Exception:
+            logo_bytes = None
+    periodo = " a ".join([x for x in [data_ini, data_fim] if x])
+    pdf = build_historico_pdf(paciente, tutor, eventos, clinic, logo_bytes, periodo, user.get("name", ""))
+    await audit(user, "exportou histórico", "paciente", pid, paciente["nome"])
+    nome = f"historico_{paciente.get('codigo', '')}_{paciente['nome']}.pdf".replace(" ", "_")
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{nome}"'})
+
+
 # ---------------- Agendamentos ----------------
 @api_router.get("/agendamentos")
 async def list_agendamentos(data_ini: Optional[str] = None, data_fim: Optional[str] = None,
@@ -551,7 +619,7 @@ async def create_agendamento(body: dict, user: dict = Depends(require("agenda:wr
             raise HTTPException(status_code=409, detail="Conflito de horário para este profissional")
     tutor = await db.tutores.find_one({"id": paciente["tutor_id"]}, {"_id": 0})
     doc = {
-        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
+        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"], "paciente_codigo": paciente.get("codigo"),
         "tutor_id": paciente["tutor_id"], "tutor_nome": tutor.get("nome", "") if tutor else "",
         "profissional_id": prof, "profissional_nome": body.get("profissional_nome", ""),
         "tipo": body.get("tipo", "consulta"), "sala": body.get("sala", ""),
@@ -573,7 +641,7 @@ PRONT_FIELDS = ["motivo", "queixa_principal", "anamnese", "exame_fisico", "tempe
 
 async def novo_prontuario_agendamento(ag: dict, origem: str) -> dict:
     pront = {
-        "id": str(uuid.uuid4()), "paciente_id": ag["paciente_id"], "paciente_nome": ag["paciente_nome"],
+        "id": str(uuid.uuid4()), "paciente_id": ag["paciente_id"], "paciente_nome": ag["paciente_nome"], "paciente_codigo": ag.get("paciente_codigo"),
         "tutor_id": ag["tutor_id"], "origem": origem, "agendamento_id": ag["id"],
         **{k: "" for k in PRONT_FIELDS}, "motivo": ag.get("motivo") or ag.get("tipo", "consulta"),
         "profissional_id": ag.get("profissional_id", ""), "profissional_nome": ag.get("profissional_nome", ""),
@@ -616,7 +684,7 @@ async def fila_em_consulta(pront: dict, user: dict) -> str:
     paciente = await db.pacientes.find_one({"id": pront["paciente_id"]}, {"_id": 0}) or {}
     tutor = await db.tutores.find_one({"id": pront["tutor_id"]}, {"_id": 0}) or {}
     doc = {
-        "id": str(uuid.uuid4()), "paciente_id": pront["paciente_id"], "paciente_nome": pront["paciente_nome"],
+        "id": str(uuid.uuid4()), "paciente_id": pront["paciente_id"], "paciente_nome": pront["paciente_nome"], "paciente_codigo": pront.get("paciente_codigo"),
         "especie": paciente.get("especie", ""), "tutor_id": pront["tutor_id"], "tutor_nome": tutor.get("nome", ""),
         "motivo": pront.get("motivo", ""), "tipo": "agendado" if aid else "espontaneo", "prioridade": "normal",
         "status": "em_consulta", "profissional_id": str(user["_id"]), "agendamento_id": aid,
@@ -651,7 +719,7 @@ async def registrar_chegada(aid: str, user: dict = Depends(require("fila:write")
     else:
         paciente = await db.pacientes.find_one({"id": ag["paciente_id"]}, {"_id": 0}) or {}
         fila = {
-            "id": str(uuid.uuid4()), "paciente_id": ag["paciente_id"], "paciente_nome": ag["paciente_nome"],
+            "id": str(uuid.uuid4()), "paciente_id": ag["paciente_id"], "paciente_nome": ag["paciente_nome"], "paciente_codigo": ag.get("paciente_codigo"),
             "especie": paciente.get("especie", ""), "tutor_id": ag["tutor_id"], "tutor_nome": ag.get("tutor_nome", ""),
             "motivo": ag.get("motivo", ""), "tipo": "agendado", "prioridade": "normal",
             "status": "aguardando_recepcao", "profissional_id": ag.get("profissional_id", ""),
@@ -705,7 +773,7 @@ async def add_fila(body: dict, user: dict = Depends(require("fila:write"))):
         raise HTTPException(status_code=400, detail="Paciente inválido")
     tutor = await db.tutores.find_one({"id": paciente["tutor_id"]}, {"_id": 0})
     doc = {
-        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
+        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"], "paciente_codigo": paciente.get("codigo"),
         "especie": paciente.get("especie", ""), "tutor_id": paciente["tutor_id"],
         "tutor_nome": tutor.get("nome", "") if tutor else "",
         "motivo": body.get("motivo", ""), "tipo": body.get("tipo", "espontaneo"),
@@ -750,7 +818,7 @@ async def create_prontuario(body: dict, user: dict = Depends(require("prontuario
         raise HTTPException(status_code=400, detail="Paciente inválido")
     is_estagiario = user.get("role") == "estagiario"
     doc = {
-        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
+        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"], "paciente_codigo": paciente.get("codigo"),
         "tutor_id": paciente["tutor_id"], "agendamento_id": body.get("agendamento_id", ""),
         "motivo": body.get("motivo", ""), "queixa_principal": body.get("queixa_principal", ""),
         "anamnese": body.get("anamnese", ""), "exame_fisico": body.get("exame_fisico", ""),
@@ -925,7 +993,7 @@ async def create_triagem(body: dict, user: dict = Depends(require("triagem:write
     if not paciente:
         raise HTTPException(status_code=400, detail="Paciente inválido")
     doc = {
-        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
+        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"], "paciente_codigo": paciente.get("codigo"),
         "especie": paciente.get("especie", ""), "tutor_id": paciente["tutor_id"],
         "fila_id": body.get("fila_id", ""),
         **{k: body.get(k, "") for k in TRIAGEM_FIELDS}, "prioridade": body.get("prioridade") or "normal",
@@ -983,7 +1051,7 @@ async def concluir_triagem(tid: str, body: dict, user: dict = Depends(require("t
     # Encaminha ao prontuário: cria registro inicial vinculado (se não houver um do agendamento)
     if not pront_ag:
         await db.prontuarios.insert_one({
-            "id": str(uuid.uuid4()), "paciente_id": doc["paciente_id"], "paciente_nome": doc["paciente_nome"],
+            "id": str(uuid.uuid4()), "paciente_id": doc["paciente_id"], "paciente_nome": doc["paciente_nome"], "paciente_codigo": doc.get("paciente_codigo"),
             "tutor_id": doc["tutor_id"], "origem": "triagem", "triagem_id": tid, "fila_id": doc["fila_id"],
             "agendamento_id": doc["agendamento_id"], **{k: "" for k in PRONT_FIELDS},
             "motivo": "Atendimento após triagem", "queixa_principal": doc["queixa_principal"],
@@ -1033,7 +1101,7 @@ async def create_vacina(body: dict, user: dict = Depends(require("vacina:write")
     if not proxima:
         proxima = suggest_proxima_dose(paciente.get("especie", ""), body.get("nome", ""), body.get("data_aplicacao", ""))
     doc = {
-        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
+        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"], "paciente_codigo": paciente.get("codigo"),
         "especie": paciente.get("especie", ""), "tutor_id": paciente["tutor_id"],
         "tipo": body.get("tipo", "vacina"), "nome": body.get("nome", ""),
         "fabricante": body.get("fabricante", ""), "lote": body.get("lote", ""),
@@ -1075,7 +1143,7 @@ async def create_exame(body: dict, user: dict = Depends(require("exame:write")))
     if not paciente:
         raise HTTPException(status_code=400, detail="Paciente inválido")
     doc = {
-        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
+        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"], "paciente_codigo": paciente.get("codigo"),
         "especie": paciente.get("especie", ""), "tutor_id": paciente["tutor_id"],
         "prontuario_id": body.get("prontuario_id", ""),
         "tipo": body.get("tipo", ""), "categoria": body.get("categoria", "laboratorial"),
@@ -1169,7 +1237,7 @@ async def create_documento(body: dict, user: dict = Depends(require("prontuario:
     path = build_path("pdf")
     result = put_object(path, pdf_bytes, "application/pdf")
     doc = {
-        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"],
+        "id": str(uuid.uuid4()), "paciente_id": paciente["id"], "paciente_nome": paciente["nome"], "paciente_codigo": paciente.get("codigo"),
         "tutor_id": paciente["tutor_id"], "tutor_nome": tutor.get("nome", "") if tutor else "",
         "tipo": tipo, "titulo": TIPO_TITULO[tipo], "corpo": body.get("corpo", ""),
         "medicamentos": body.get("medicamentos", ""), "prontuario_id": body.get("prontuario_id", ""),
@@ -1372,6 +1440,7 @@ async def startup():
     await db.pacientes.create_index("tutor_id")
     await init_codigos("tutores")
     await init_codigos("pacientes")
+    await link_paciente_codigos()
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@example.com").lower()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})

@@ -11,12 +11,14 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Plus, Pencil, AlertTriangle, Upload } from "lucide-react";
+import { Search, Plus, Pencil, AlertTriangle, Upload, History } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const EMPTY = { tutor_id: "", nome: "", especie: "canino", raca: "", sexo: "macho", data_nascimento: "", idade_estimada: "", cor: "", peso: "", microchip: "", estado_reprodutivo: "", alergias: "", doencas_preexistentes: "", medicamentos_continuos: "", alertas: "", foto: "", situacao: "ativo" };
 
 export default function Pacientes() {
   const { can } = useAuth();
+  const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [tutores, setTutores] = useState([]);
   const [q, setQ] = useState("");
@@ -94,6 +96,7 @@ export default function Pacientes() {
                   {p.peso && <Badge variant="outline" className="font-mono text-[10px]">{p.peso} kg</Badge>}
                   {p.alergias && <Badge className="bg-rose-100 text-rose-800 border-rose-300 text-[10px]"><AlertTriangle className="h-3 w-3 mr-0.5" />Alergia</Badge>}
                 </div>
+                <Button size="sm" variant="outline" className="mt-2 h-7 text-xs" onClick={() => navigate(`/pacientes/${p.id}/historico`)} data-testid={`historico-paciente-${p.id}`}><History className="h-3.5 w-3.5 mr-1" />Linha do tempo</Button>
               </div>
             </Card>
           );
